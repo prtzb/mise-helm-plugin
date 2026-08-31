@@ -12,7 +12,7 @@ being installed by a `postinstall` hook.
 "helm-plugin:helm-secrets" = "4.6.0"
 
 [env]
-HELM_PLUGINS = "{{config_root}}/.mise/helm-plugins"
+HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"
 
 [hooks]
 enter = "helm-plugins-sync"
@@ -30,14 +30,36 @@ You don't need to install `helm-plugins-sync` or reference it by path: the
 plugin puts its own `bin/` on `PATH` whenever a `helm-plugin:*` tool is active,
 so the bare name in `[hooks]` resolves.
 
-Because `HELM_PLUGINS` lives under `{{config_root}}`, each project gets its own
-directory. Two shells in two projects don't interfere, and two projects can pin
-different versions of the same plugin.
+The directory is keyed on a hash of `config_root`, so each project gets its own
+— e.g. `~/.local/state/helm-plugins/myproj-d2fbca0b`. Two shells in two projects
+don't interfere, and two projects can pin different versions of the same plugin.
+It lives in XDG state rather than in the repo because it's derived, machine-local
+data that `helm-plugins-sync` can rebuild at any time; nothing is generated
+inside your project, so there's nothing to `.gitignore`.
+
+## Examples
+
+`example/1` and `example/2` are two runnable projects that pin *different major
+versions of helm* alongside the helm-secrets release each one supports:
+
+| | helm | helm-diff | helm-secrets |
+| --- | --- | --- | --- |
+| `example/1` | 3 | 3.9.0 | 4.6.0 |
+| `example/2` | 4 | 3.10.0 | 4.7.7 |
+
+The helm-secrets pins are not interchangeable. Releases up to 4.6.4 set both
+`command` and `platformCommand` in `plugin.yaml`; helm 3 accepts that (with a
+deprecation warning as of 3.21) and helm 4 refuses to load the plugin at all.
+4.6.5 dropped the bare `command`, so 4.6.5+ is required on helm 4. Pinning helm
+per project is what makes both work side by side.
 
 ## Requirements
 
 - `helm` on `PATH` — installation delegates to `helm plugin install` rather
-  than reimplementing it.
+  than reimplementing it. Both helm 3 and helm 4 work: helm 4 verifies plugin
+  signatures by default and rejects git sources outright, so the backend
+  detects the major version and passes `--verify=false` there. helm 3 has no
+  such flag and doesn't get one.
 - `git`, which helm's own plugin installer shells out to.
 - `jq`, used by `helm-plugins-sync` to read `mise ls --current --json`.
 - `mise activate` in your shell, so the `enter` hook fires on `cd`. Without it
@@ -76,4 +98,6 @@ mise install helm-plugin:helm-diff@3.9.0
   plugins whose `plugin.yaml` hooks download prebuilt binaries.
 - **Stale directories aren't garbage collected.** `mise uninstall` doesn't run
   `helm-plugins-sync`, so a removed plugin's symlink survives until the next
-  `cd` into the project.
+  `cd` into the project. Likewise, renaming or deleting a project orphans its
+  directory under `~/.local/state/helm-plugins/`, since the name is a hash of
+  the old path. Both are safe to `rm -rf`.

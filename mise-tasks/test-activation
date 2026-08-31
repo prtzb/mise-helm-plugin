@@ -19,15 +19,20 @@ root="$(mktemp -d)"
 trap 'rm -rf "$root"' EXIT
 
 make_project() {
-    local dir="$1" diff_version="$2" with_secrets="$3"
+    local dir="$1" helm_major="$2" diff_version="$3" secrets_version="$4"
     mkdir -p "$dir"
     {
         echo '[tools]'
+        # Pin helm explicitly so the test covers both majors rather than
+        # whatever happens to be on PATH. helm 4 needs --verify=false at install
+        # time, which BackendInstall detects; helm-secrets < 4.6.5 won't load on
+        # helm 4 at all, so the versions differ per project by necessity.
+        echo "helm = \"$helm_major\""
         echo "\"helm-plugin:helm-diff\" = \"$diff_version\""
-        [ "$with_secrets" = yes ] && echo '"helm-plugin:helm-secrets" = "4.6.0"'
+        [ "$secrets_version" != none ] && echo "\"helm-plugin:helm-secrets\" = \"$secrets_version\""
         echo
         echo '[env]'
-        echo 'HELM_PLUGINS = "{{config_root}}/.mise/helm-plugins"'
+        echo 'HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"'
         echo
         echo '[hooks]'
         # Bare name, not a path: BackendExecEnv puts the plugin's bin/ on PATH.
@@ -35,8 +40,9 @@ make_project() {
     } >"$dir/mise.toml"
 }
 
-make_project "$root/a" 3.9.0 no
-make_project "$root/b" 3.10.0 yes
+# a: helm 3, one plugin.  b: helm 4, two plugins, incl. a helm-4-capable secrets.
+make_project "$root/a" 3 3.9.0 none
+make_project "$root/b" 4 3.10.0 4.7.7
 
 fail=0
 
@@ -49,7 +55,7 @@ check() {
     # here, resolved off PATH exactly as the hook would.
     mise exec -- helm-plugins-sync
 
-    echo "=== $dir ==="
+    echo "=== $dir (helm $(mise exec -- helm version --short)) ==="
     mise env -s bash | grep HELM_PLUGINS || true
     mise exec -- helm plugin list
 

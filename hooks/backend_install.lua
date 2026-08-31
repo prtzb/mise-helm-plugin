@@ -43,17 +43,35 @@ function PLUGIN:BackendInstall(ctx)
     -- merges with the inherited environment or replaces it; passing them is
     -- harmless if it merges and necessary if it doesn't. helm shells out to git,
     -- and git needs both.
-    local install_cmd = string.format("helm plugin install %s --version %s", shq(repo_url), shq(version))
+    local env = {
+        HELM_PLUGINS = plugins_dir,
+        PATH = os.getenv("PATH"),
+        HOME = os.getenv("HOME"),
+    }
+
+    -- helm 4 verifies plugin signatures by default and refuses any git source
+    -- with "plugin source does not support verification", which is every plugin
+    -- we install. helm 3 has no --verify flag at all, so the flag has to be
+    -- conditional on the helm actually being used — which is whichever one PATH
+    -- resolves to, and differs between an activated and non-activated shell.
+    local verify_flag = ""
+    local ok_version, version_out = pcall(cmd.exec, "helm version --short", { env = env })
+    if ok_version then
+        local major = tonumber(tostring(version_out):match("v(%d+)%."))
+        if major and major >= 4 then
+            verify_flag = " --verify=false"
+        end
+        log.debug("helm version: " .. tostring(version_out) .. " (major " .. tostring(major) .. ")")
+    else
+        log.warn("could not determine helm version, assuming helm 3: " .. tostring(version_out))
+    end
+
+    local install_cmd =
+        string.format("helm plugin install %s --version %s%s", shq(repo_url), shq(version), verify_flag)
 
     log.debug("running: " .. install_cmd .. " (HELM_PLUGINS=" .. plugins_dir .. ")")
 
-    local ok, result = pcall(cmd.exec, install_cmd, {
-        env = {
-            HELM_PLUGINS = plugins_dir,
-            PATH = os.getenv("PATH"),
-            HOME = os.getenv("HOME"),
-        },
-    })
+    local ok, result = pcall(cmd.exec, install_cmd, { env = env })
 
     if not ok then
         error(string.format("helm plugin install failed for %s@%s: %s", tool, version, tostring(result)))

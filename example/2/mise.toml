@@ -1,0 +1,21 @@
+# helm 4 + a helm-secrets release that works on helm 4.
+#
+# helm 4 refuses to load a plugin.yaml that sets both `command` and
+# `platformCommand`. helm-secrets 4.6.5 dropped the bare `command` in favour of
+# a catch-all `platformCommand` entry, so 4.6.5+ is required here — 4.6.0 as
+# pinned in example/1 fails to load with "both platformCommand and command are
+# set".
+#
+# helm 4 also verifies plugin signatures by default and rejects git sources
+# outright; the backend detects the helm major version and passes
+# --verify=false, so this installs without any extra configuration.
+[tools]
+helm = "4"
+"helm-plugin:helm-diff" = "3.10.0"
+"helm-plugin:helm-secrets" = "4.7.7"
+
+[env]
+HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"
+
+[hooks]
+enter = "helm-plugins-sync"

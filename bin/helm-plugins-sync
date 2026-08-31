@@ -19,7 +19,7 @@ helm-plugins-sync: HELM_PLUGINS is not set and no target directory was given.
 Add to your project's mise.toml:
 
     [env]
-    HELM_PLUGINS = "{{config_root}}/.mise/helm-plugins"
+    HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"
 
     [hooks]
     enter = "helm-plugins-sync"

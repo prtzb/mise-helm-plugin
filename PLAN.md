@@ -185,7 +185,7 @@ build the directory correctly. The consuming project wires it up:
 "helm-plugin:helm-secrets" = "4.6.0"
 
 [env]
-HELM_PLUGINS = "{{config_root}}/.mise/helm-plugins"
+HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"
 
 [hooks]
 enter = "helm-plugins-sync"
@@ -193,9 +193,19 @@ enter = "helm-plugins-sync"
 
 `bin/helm-plugins-sync` symlinks each active plugin into `$HELM_PLUGINS`
 (named after the tool, so version switches replace in place) and prunes
-symlinks for plugins no longer active. Because the directory lives under
-`config_root`, it is per-project by construction: no global shared state, no
-cross-shell race, and the single-active-shell limitation never arises.
+symlinks for plugins no longer active. Because the directory is keyed on a
+hash of `config_root`, it is per-project by construction: no global shared
+state, no cross-shell race, and the single-active-shell limitation never
+arises.
+
+On placement: mise defines no per-project directory convention — its
+documented directories (config, cache, state, data) are all user-level. But
+templates expose `xdg_state_home` and a `hash` filter, so the directory goes
+in XDG state, which mise describes as "state local to the machine". That fits
+derived, rebuildable data better than cache (which may be wiped) or data
+(which is for installed tools), and keeps generated files out of the repo.
+It sits beside `~/.local/state/mise/` rather than inside it, so we're not
+squatting in a namespace mise owns.
 
 Costs, honestly: four lines in each consuming `mise.toml` beyond `[tools]`,
 a dependency on `mise activate` for the `enter` hook to fire, and `jq`.
