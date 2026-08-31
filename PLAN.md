@@ -33,10 +33,24 @@ instead of a `postinstall` hook calling `helm plugin install` directly.
   (https://github.com/jdx/mise-backend-plugin-template) rather than from
   scratch — it gives you the Lua scaffolding, LuaCATS type defs, and lint/test
   setup already wired up.
-- Read `https://mise.jdx.dev/backend-plugin-development.html` in full before
-  writing code — confirm the current `ctx` fields available in
-  `BackendInstall` (`install_path`, `download_path`, `version`, `tool`,
-  `options`) match what's assumed below, since the API may have evolved.
+- Read `https://mise.jdx.dev/backend-plugin-development.html` and
+  `https://mise.jdx.dev/plugin-lua-modules.html` before writing code.
+  Verified against live docs 2026-08-31:
+
+  | Hook | ctx fields |
+  | --- | --- |
+  | `BackendListVersions` | `tool`, `options` |
+  | `BackendInstall` | `tool`, `version`, `install_path`, `download_path`, `options` |
+  | `BackendExecEnv` | `tool`, `version`, `install_path`, `options` |
+
+  Plugins run in an embedded Lua 5.1 VM (gopher-lua), not a standalone
+  `lua` binary. Available modules, loaded with `require()`: `cmd`, `json`,
+  `http`, `file`, `env`, `strings`, `semver`, `html`, `archiver`, `log`.
+  Relevant pieces: `cmd.exec(command, {cwd=, env=, timeout=})`,
+  `semver.sort` (ascending), `http.try_get`, `file.join_path/symlink/exists`,
+  `log.debug` (gated behind `MISE_DEBUG=1`). `os.getenv()` works; the docs
+  do not enumerate what else of the stock stdlib survives, so treat anything
+  outside the injected modules as unverified.
 
 ## Architecture
 
@@ -47,19 +61,19 @@ real `helm plugin install`, but redirect its target directory to mise's
 per-version install path using a temporary `HELM_PLUGINS` override:
 
 ```lua
+local cmd = require("cmd")
+local file = require("file")
+
 function PLUGIN:BackendInstall(ctx)
   local tool = ctx.tool           -- e.g. "helm-diff"
   local version = ctx.version     -- e.g. "3.9.0"
-  local install_path = ctx.install_path
 
-  local plugins_dir = install_path .. "/plugins"
+  local plugins_dir = file.join_path(ctx.install_path, "plugins")
   local repo_url = PLUGIN:ResolveRepoUrl(tool) -- see version listing below
 
-  local cmd = string.format(
-    'HELM_PLUGINS=%q helm plugin install %q --version %q',
-    plugins_dir, repo_url, version
-  )
-  local ok, err = os.execute(cmd)
+  local ok, err = pcall(cmd.exec,
+    string.format("helm plugin install %s --version %s", repo_url, version),
+    { env = { HELM_PLUGINS = plugins_dir } })
   if not ok then
     error("helm plugin install failed for " .. tool .. "@" .. version .. ": " .. tostring(err))
   end
@@ -69,6 +83,10 @@ end
 ```
 
 Notes:
+- Use `cmd.exec` rather than `os.execute`. It's the documented idiom, it
+  returns stdout as a string (useful for error messages), and it takes the
+  environment **structurally** via its `env` option — so there is no shell
+  command line to quote and no escaping bug waiting to happen.
 - `helm plugin install` creates a subdirectory named after the plugin's
   `name` field in `plugin.yaml` inside `HELM_PLUGINS` — **not** the version.
   So the actual installed plugin will live at
@@ -89,10 +107,14 @@ repo for tags/releases (same pattern mise's `github:` backend already uses):
 function PLUGIN:BackendListVersions(ctx)
   local tool = ctx.tool
   local repo = PLUGIN:ResolveRepoUrl(tool)
-  -- fetch tags from GitHub API, strip leading "v", sort ascending semver
+  -- http.try_get the GitHub tags API, json.decode, strip leading "v",
+  -- then semver.sort(versions) -- returns ascending, no hand-rolled sort
   return { versions = versions }
 end
 ```
+
+Use `http.try_get` (returns `(nil, err_string)` instead of raising) +
+`json.decode` + `semver.sort`. All three are built in; no external deps.
 
 Maintain a small internal map from short plugin name -> GitHub repo URL
 (e.g. `helm-diff` -> `https://github.com/databus23/helm-diff`), scoped to
@@ -104,26 +126,79 @@ This is the part `BackendInstall`/`BackendListVersions` don't cover — mise
 needs to expose the *currently active* set of plugin versions to helm via
 `HELM_PLUGINS`, and that changes per project/per shell.
 
-Two options, in increasing order of robustness:
+`BackendExecEnv(ctx)` looks like the hook for this — it's called per active
+tool and returns env vars. **It cannot do the job.** Two measured constraints
+rule it out; the design below works around them.
 
-- **Env var + symlink assembly, done at mise env-activation time.** The
-  plugin sets `HELM_PLUGINS` to a mise-managed directory (e.g.
-  `~/.local/share/mise/helm-plugins-active/`), and on each activation mise
-  rebuilds that directory's contents as symlinks to
-  `install_path/plugins/<plugin-name>/` for every currently active
-  `helm-plugin:*` tool.
-- **Per-shell temp directory instead of a shared one**, to avoid races
-  between multiple concurrent shells with different active tool sets
-  (e.g. two terminals in two different project directories). This avoids
-  clobbering one shell's active plugin set with another's. Prefer this if
-  mise's env-var/hook API allows per-invocation directories; otherwise
-  fall back to the shared directory and accept the single-active-shell
-  limitation as a known constraint.
+Two facts that looked promising at first:
 
-Confirm during implementation which mechanism mise's backend/env API
-actually exposes for "run this logic on every env activation, not just on
-install" — this determines whether option 2 is feasible or you're stuck
-with option 1's shared-directory limitation.
+- `HELM_PLUGINS` accepts **multiple** path-separated directories, not just
+  one. Helm 3.x splits it in `plugin.FindPlugins` with `filepath.SplitList`
+  ("Let's get all UNIXy and allow path separators"). Helm 4 moved the split
+  out to the caller — `FindPlugins` now takes a pre-split `[]string` — so
+  the capability still exists, but **verify against the helm version you
+  actually pin**.
+- Each active `helm-plugin:*` tool gets its own `BackendExecEnv` call.
+
+So *if* mise concatenated same-key `env_vars` across multiple active tools,
+each tool could just return its own `install_path/plugins` and the symlink
+farm, the shared mutable directory, and the cross-shell race would all
+disappear.
+
+**Neither survives contact with mise.** Both measured 2026-08-31:
+
+1. **Same-key `env_vars` are last-wins, not merged.** With
+   `helm-plugin:helm-diff@3.9.0` and `helm-plugin:helm-secrets@4.6.0` both
+   active, mise emitted only
+   `HELM_PLUGINS=~/.local/share/mise/installs/helm-plugin-helm-diff/3.9.0/plugins`
+   and `helm plugin list` showed one plugin. `PATH` is special-cased;
+   `HELM_PLUGINS` is not. Both plugins *installed* fine, and joining the two
+   directories with a colon by hand lists both — the gap is purely activation.
+2. **A hook cannot append to its siblings' work.** `os.getenv("HELM_PLUGINS")`
+   inside `BackendExecEnv` returns `nil` for every tool: mise builds each
+   tool's env in isolation and merges afterwards. (The docs' "inherits the
+   mise-constructed environment" applies to `cmd.exec` inside a hook.)
+3. **`BackendExecEnv` output is cached per tool@version.** A second `mise env`
+   in the same project emits the right value without invoking the hook at all.
+   So the return value must be a *pure function of `(tool, version)`* —
+   keying it on the project (e.g. `PWD`, the only project-ish variable a hook
+   can see; `MISE_PROJECT_ROOT` and friends are not exported) is unsound:
+   a value computed in one project is served to every other project pinning
+   the same version. Symlink assembly inside the hook is equally dead, since
+   a cache hit skips the rebuild entirely on `cd`.
+
+The hook still has to *exist* — deleting `hooks/backend_exec_env.lua` makes
+mise fail every bin-path lookup with "module not found". It keeps one sound
+job: adding the plugin's own `bin/` to `PATH`, so projects can write
+`enter = "helm-plugins-sync"` rather than hardcoding a path into mise's data
+directory. That's safe precisely where `HELM_PLUGINS` wasn't — `PATH` is the
+one key mise merges, and the value depends only on the plugin's location, so
+caching it per tool@version is harmless.
+
+**Design: assembly outside the hook.** `mise ls --current --json` reports the
+active `helm-plugin:*` tools with their `install_path`s, so a plain script can
+build the directory correctly. The consuming project wires it up:
+
+```toml
+[tools]
+"helm-plugin:helm-diff" = "3.9.0"
+"helm-plugin:helm-secrets" = "4.6.0"
+
+[env]
+HELM_PLUGINS = "{{config_root}}/.mise/helm-plugins"
+
+[hooks]
+enter = "helm-plugins-sync"
+```
+
+`bin/helm-plugins-sync` symlinks each active plugin into `$HELM_PLUGINS`
+(named after the tool, so version switches replace in place) and prunes
+symlinks for plugins no longer active. Because the directory lives under
+`config_root`, it is per-project by construction: no global shared state, no
+cross-shell race, and the single-active-shell limitation never arises.
+
+Costs, honestly: four lines in each consuming `mise.toml` beyond `[tools]`,
+a dependency on `mise activate` for the `enter` hook to fire, and `jq`.
 
 ## Milestones
 
@@ -142,13 +217,13 @@ with option 1's shared-directory limitation.
    - Verify `mise install helm-plugin:helm-diff@3.9.0` produces
      `install_path/plugins/helm-diff/plugin.yaml` correctly.
 
-4. **Activation / symlink assembly**
-   - Implement the `HELM_PLUGINS`-pointing-at-managed-directory logic.
-   - Verify `helm plugin list` sees the plugin after `mise use` +
-     `eval "$(mise activate)"`, with the correct version.
-   - Test switching directories between two projects with different pinned
-     versions of the same plugin; confirm `helm plugin list` reflects the
-     right one in each.
+4. **Activation** — DONE (2026-08-31). Settled as `bin/helm-plugins-sync`
+   plus per-project `[env]`/`[hooks]` wiring; see §3 for why the hook route
+   failed. `mise run test-activation` covers two projects pinning different
+   helm-diff versions, including revisiting the first, and passes.
+   - Still untested: that the `enter` hook actually fires under a real
+     `eval "$(mise activate)"` shell, as opposed to the test calling
+     `helm-plugins-sync` directly.
 
 5. **Add remaining plugins**
    - Add `helm-secrets`, and whatever others your projects use, to the
@@ -178,11 +253,24 @@ with option 1's shared-directory limitation.
 
 ## Risks / open questions to resolve early
 
-- Exact `ctx` fields available in current `BackendInstall` — confirm against
-  live docs, not assumptions in this plan.
-- Whether mise's backend API supports a hook that runs on every env
-  activation (needed for real per-project switching) or only on
-  install/uninstall (which would force the shared-directory, single-active-shell
-  limitation).
+- ~~Exact `ctx` fields available in current `BackendInstall`.~~ Resolved
+  2026-08-31 — see the table under Prerequisites.
+- ~~Whether mise's backend API supports a hook that runs on every env
+  activation.~~ Partly resolved: `BackendExecEnv` exists and returns
+  `env_vars`. Still open is whether it re-runs on every directory change or
+  is cached per tool-version.
+- ~~Whether mise merges same-key `env_vars` across multiple active tools.~~
+  Resolved 2026-08-31: **it does not** — last-wins. Activation needs symlink
+  assembly; see §3.
+- ~~Whether the helm version you pin still splits `HELM_PLUGINS` on the path
+  separator.~~ Verified empirically against helm 3.11.0: colon-separated
+  values list plugins from every directory. Re-check if you move to helm 4.
+- ~~Whether `BackendExecEnv` can instead *append* to the `HELM_PLUGINS` it
+  inherits.~~ Resolved 2026-08-31: no — `os.getenv("HELM_PLUGINS")` is `nil`
+  in every hook. See §3.
+- ~~Whether mise re-runs `BackendExecEnv` on every directory change.~~
+  Resolved 2026-08-31: no, it caches per tool@version. This is undocumented
+  behaviour (the docs' only caching note is a "TODO" about shared Lua
+  modules), so it could change; `mise run test-activation` would catch it.
 - Whether `helm plugin install` supports `--version` cleanly for all target
   plugins, or whether some require a git ref instead of a semver tag.

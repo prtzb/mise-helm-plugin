@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+#MISE description="End-to-end: two projects pinning different versions of the same helm plugin"
+#
+# PLAN.md testing plan: two sibling directories, each pinning a different
+# version of helm-diff; confirm helm sees the right one in each, and that the
+# project with two plugins sees both.
+set -euo pipefail
+
+plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+command -v helm >/dev/null || {
+    echo "helm not found on PATH — it's a hard dependency of this backend" >&2
+    exit 1
+}
+
+mise plugin link --force helm-plugin "$plugin_dir"
+
+root="$(mktemp -d)"
+trap 'rm -rf "$root"' EXIT
+
+make_project() {
+    local dir="$1" diff_version="$2" with_secrets="$3"
+    mkdir -p "$dir"
+    {
+        echo '[tools]'
+        echo "\"helm-plugin:helm-diff\" = \"$diff_version\""
+        [ "$with_secrets" = yes ] && echo '"helm-plugin:helm-secrets" = "4.6.0"'
+        echo
+        echo '[env]'
+        echo 'HELM_PLUGINS = "{{config_root}}/.mise/helm-plugins"'
+        echo
+        echo '[hooks]'
+        # Bare name, not a path: BackendExecEnv puts the plugin's bin/ on PATH.
+        echo 'enter = "helm-plugins-sync"'
+    } >"$dir/mise.toml"
+}
+
+make_project "$root/a" 3.9.0 no
+make_project "$root/b" 3.10.0 yes
+
+fail=0
+
+check() {
+    local dir="$1" expected_diff="$2" expected_count="$3"
+
+    cd "$dir"
+    mise install >/dev/null
+    # The `enter` hook fires on cd in an activated shell; invoke it directly
+    # here, resolved off PATH exactly as the hook would.
+    mise exec -- helm-plugins-sync
+
+    echo "=== $dir ==="
+    mise env -s bash | grep HELM_PLUGINS || true
+    mise exec -- helm plugin list
+
+    local actual_diff actual_count
+    actual_diff="$(mise exec -- helm plugin list | awk '$1 == "diff" { print $2 }')"
+    actual_count="$(mise exec -- helm plugin list | tail -n +2 | grep -c . || true)"
+
+    if [ "$actual_diff" != "$expected_diff" ]; then
+        echo "FAIL: expected diff $expected_diff, got '${actual_diff:-none}'" >&2
+        fail=1
+    fi
+    if [ "$actual_count" != "$expected_count" ]; then
+        echo "FAIL: expected $expected_count plugin(s), got $actual_count" >&2
+        fail=1
+    fi
+    echo
+}
+
+# Visit a, then b, then a again — the revisit is what catches stale state
+# leaking between projects.
+check "$root/a" 3.9.0 1
+check "$root/b" 3.10.0 2
+check "$root/a" 3.9.0 1
+
+if [ "$fail" -eq 0 ]; then
+    echo "PASS: both projects saw their own pinned versions, including on revisit"
+else
+    echo "FAILED" >&2
+    exit 1
+fi

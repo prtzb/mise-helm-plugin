@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Rebuild the directory HELM_PLUGINS points at so it holds exactly the helm
+# plugins active in the current project.
+#
+# Why this is a task rather than something BackendExecEnv does (see PLAN.md §3):
+# mise does not merge same-key env_vars across tools, and it caches
+# BackendExecEnv output per tool@version — so the hook can neither contribute
+# one directory per tool nor re-run when you cd between projects.
+#
+# Usage: helm-plugins-sync [target-dir]     (default: $HELM_PLUGINS)
+set -euo pipefail
+
+target="${1:-${HELM_PLUGINS:-}}"
+
+if [ -z "$target" ]; then
+    cat >&2 <<'EOF'
+helm-plugins-sync: HELM_PLUGINS is not set and no target directory was given.
+
+Add to your project's mise.toml:
+
+    [env]
+    HELM_PLUGINS = "{{config_root}}/.mise/helm-plugins"
+
+    [hooks]
+    enter = "helm-plugins-sync"
+EOF
+    exit 1
+fi
+
+for required in mise jq; do
+    command -v "$required" >/dev/null || {
+        echo "helm-plugins-sync: $required is required but not on PATH" >&2
+        [ "$required" = jq ] && echo "  add jq = \"latest\" to [tools] in your mise.toml" >&2
+        exit 1
+    }
+done
+
+mkdir -p "$target"
+
+# "<short-tool-name>\t<install_path>" for every active, installed helm-plugin:* tool.
+active="$(mise ls --current --json | jq -r '
+    to_entries[] as $tool
+    | select($tool.key | startswith("helm-plugin:"))
+    | $tool.value[]
+    | select(.active and .installed)
+    | "\($tool.key | ltrimstr("helm-plugin:"))\t\(.install_path)"
+')"
+
+wanted=()
+
+while IFS=$'\t' read -r tool install_path; do
+    [ -n "$tool" ] || continue
+
+    # helm names the directory after plugin.yaml's `name` field, which is not
+    # necessarily the tool name, so discover it rather than assuming.
+    manifest="$(find "$install_path/plugins" -mindepth 2 -maxdepth 2 -name plugin.yaml -print -quit 2>/dev/null || true)"
+    if [ -z "$manifest" ]; then
+        echo "helm-plugins-sync: no plugin.yaml under $install_path/plugins for $tool" >&2
+        echo "  try: mise uninstall helm-plugin:$tool && mise install" >&2
+        exit 1
+    fi
+
+    ln -sfn "$(dirname "$manifest")" "$target/$tool"
+    wanted+=("$tool")
+done <<<"$active"
+
+# Prune links for plugins that are no longer active in this project. Only ever
+# removes symlinks — anything else in the directory is left alone and reported.
+for entry in "$target"/*; do
+    [ -L "$entry" ] || [ -e "$entry" ] || continue
+    name="$(basename "$entry")"
+
+    keep=false
+    for w in ${wanted[@]+"${wanted[@]}"}; do
+        [ "$w" = "$name" ] && keep=true && break
+    done
+    [ "$keep" = true ] && continue
+
+    if [ -L "$entry" ]; then
+        rm -f "$entry"
+    else
+        echo "helm-plugins-sync: $entry is not a symlink, leaving it alone" >&2
+    fi
+done

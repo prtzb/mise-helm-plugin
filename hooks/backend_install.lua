@@ -1,0 +1,82 @@
+--- Installs a helm plugin by delegating to `helm plugin install`.
+--- Documentation: https://mise.jdx.dev/backend-plugin-development.html#backendinstall
+--- @param ctx {tool: string, version: string, install_path: string, download_path: string, options: table} Context
+--- @return table Empty table on success
+
+local cmd = require("cmd")
+local file = require("file")
+local log = require("log")
+
+--- POSIX single-quote escaping, for the few places a shell string is unavoidable.
+--- @param s string
+--- @return string
+local function shq(s)
+    return "'" .. s:gsub("'", [['\'']]) .. "'"
+end
+
+function PLUGIN:BackendInstall(ctx)
+    local tool = ctx.tool
+    local version = ctx.version
+    local install_path = ctx.install_path
+
+    if not version or version == "" then
+        error("Version cannot be empty")
+    end
+    if not install_path or install_path == "" then
+        error("Install path cannot be empty")
+    end
+
+    local repo_url = PLUGIN:ResolveRepoUrl(tool)
+    local plugins_dir = file.join_path(install_path, "plugins")
+
+    -- helm's installer expects HELM_PLUGINS to exist.
+    cmd.exec("mkdir -p " .. shq(plugins_dir))
+
+    -- Deliberately NOT reimplementing helm's plugin installer: helm handles
+    -- platform-specific archives and plugin.yaml install hooks (make, go build,
+    -- prebuilt binary downloads), and we inherit correctness from it.
+    --
+    -- HELM_PLUGINS is passed structurally via cmd.exec's env option rather than
+    -- prefixed onto a shell command line, so there's nothing to quote.
+    --
+    -- PATH/HOME are passed explicitly because the docs don't state whether `env`
+    -- merges with the inherited environment or replaces it; passing them is
+    -- harmless if it merges and necessary if it doesn't. helm shells out to git,
+    -- and git needs both.
+    local install_cmd = string.format("helm plugin install %s --version %s", shq(repo_url), shq(version))
+
+    log.debug("running: " .. install_cmd .. " (HELM_PLUGINS=" .. plugins_dir .. ")")
+
+    local ok, result = pcall(cmd.exec, install_cmd, {
+        env = {
+            HELM_PLUGINS = plugins_dir,
+            PATH = os.getenv("PATH"),
+            HOME = os.getenv("HOME"),
+        },
+    })
+
+    if not ok then
+        error(string.format("helm plugin install failed for %s@%s: %s", tool, version, tostring(result)))
+    end
+
+    -- helm names the directory after the `name` field in plugin.yaml, which is
+    -- not necessarily `tool` and never the version. Verify something actually
+    -- landed rather than leaving a half-installed version that mise records as
+    -- successful.
+    local manifests = file.glob(file.join_path(plugins_dir, "*", "plugin.yaml"))
+    if #manifests == 0 then
+        error(
+            string.format(
+                "helm plugin install reported success for %s@%s but no plugin.yaml was found under %s. Output: %s",
+                tool,
+                version,
+                plugins_dir,
+                tostring(result)
+            )
+        )
+    end
+
+    log.debug(string.format("installed %s@%s -> %s", tool, version, manifests[1]))
+
+    return {}
+end
