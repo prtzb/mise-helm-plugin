@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+#MISE description="Edge cases for helm-plugins-sync: uninstall cleanup, corrupt installs, stray files"
+#
+# PLAN.md milestone 6. There is no BackendUninstall hook in mise, so cleanup of
+# stale links is helm-plugins-sync's job on the next run.
+set -euo pipefail
+
+plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+diff_version="${DIFF_VERSION:-3.9.0}"
+secrets_version="${SECRETS_VERSION:-4.6.0}"
+
+command -v helm >/dev/null || {
+    echo "helm not found on PATH — it's a hard dependency of this backend" >&2
+    exit 1
+}
+
+mise plugin link --force helm-plugin "$plugin_dir"
+
+root="$(mktemp -d)"
+secrets_plugins="$(mise where "helm-plugin:helm-secrets@$secrets_version" 2>/dev/null || true)/plugins"
+# Always put the install back, even if an assertion aborts the run.
+cleanup() {
+    [ -d "$secrets_plugins.bak" ] && mv "$secrets_plugins.bak" "$secrets_plugins"
+    rm -rf "$root" "${target:-}"
+}
+trap cleanup EXIT
+
+cd "$root"
+cat >mise.toml <<EOF
+[tools]
+helm = "3"
+"helm-plugin:helm-diff" = "$diff_version"
+"helm-plugin:helm-secrets" = "$secrets_version"
+
+[env]
+HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"
+EOF
+
+mise install >/dev/null
+target="$(mise env -s bash | sed -n 's/^export HELM_PLUGINS=//p')"
+secrets_plugins="$(mise where "helm-plugin:helm-secrets@$secrets_version")/plugins"
+
+fail=0
+
+# $1=label  $2=expected exit  $3=expected links (space separated, sorted)
+check() {
+    local label="$1" expected_exit="$2" expected_links="$3"
+    local actual_exit=0 actual_links
+
+    mise exec -- helm-plugins-sync || actual_exit=$?
+    actual_links="$(ls "$target" 2>/dev/null | sort | tr '\n' ' ' | sed 's/ $//')"
+
+    if [ "$actual_exit" != "$expected_exit" ]; then
+        echo "FAIL [$label]: expected exit $expected_exit, got $actual_exit" >&2
+        fail=1
+    fi
+    if [ "$actual_links" != "$expected_links" ]; then
+        echo "FAIL [$label]: expected links '$expected_links', got '$actual_links'" >&2
+        fail=1
+    fi
+    echo "  [$label] exit=$actual_exit links='$actual_links'"
+}
+
+echo "==> healthy project links both plugins"
+check "healthy" 0 "helm-diff helm-secrets"
+
+echo "==> a corrupt install is skipped, not fatal to the others"
+mv "$secrets_plugins" "$secrets_plugins.bak"
+check "corrupt" 1 "helm-diff"
+
+echo "==> and recovers once repaired"
+mv "$secrets_plugins.bak" "$secrets_plugins"
+check "repaired" 0 "helm-diff helm-secrets"
+
+echo "==> a stray non-symlink is preserved, not deleted"
+touch "$target/keep-me"
+check "stray-file" 1 "helm-diff helm-secrets keep-me"
+rm -f "$target/keep-me"
+
+echo "==> dropping a plugin from mise.toml prunes its link"
+sed -i '' '/helm-secrets/d' mise.toml
+check "pruned" 0 "helm-diff"
+
+if [ "$fail" -eq 0 ]; then
+    echo "PASS: sync handles uninstall, corruption, and stray files"
+else
+    echo "FAILED" >&2
+    exit 1
+fi

@@ -240,12 +240,27 @@ a dependency on `mise activate` for the `enter` hook to fire, and `jq`.
      name -> repo map.
    - Repeat verification for each.
 
-6. **Edge cases & hardening**
-   - `mise uninstall` cleans up stale symlinks.
-   - Failed `helm plugin install` (bad version, network failure) errors
-     clearly instead of leaving a half-installed state.
-   - Document the "single active shell" limitation if option 2 above
-     wasn't feasible.
+6. **Edge cases & hardening** — DONE (2026-09-01), covered by
+   `mise run test-sync-hardening`. What the measurements showed:
+   - **There is no `BackendUninstall` hook** — mise documents only the three
+     hooks we implement. Cleanup of stale links is therefore
+     `helm-plugins-sync`'s job on its next run, not something we can do at
+     uninstall time. A link stays stale until the next `cd` into the project.
+   - **That's benign.** Both helm 3.21.4 and helm 4.2.4 skip a dangling plugin
+     symlink silently and exit 0. Nothing breaks in the window before the next
+     sync.
+   - **Failed installs leave nothing behind.** mise removes the install
+     directory itself, so there's no half-installed state to clean up.
+   - **Errors are already clear.** A bad version surfaces helm's own
+     `requested version "99.99.99" does not exist for plugin ...`, and an
+     unsupported tool gives `unknown helm plugin "x". Supported: ...`. Both
+     appear on mise's `ERROR` line; the Lua stack traceback around them is
+     mise's noise, not ours.
+   - **Fixed:** a corrupt install used to abort the whole sync, so one bad
+     plugin silently blocked every other plugin from being linked. It now
+     warns, skips, links the rest, and exits non-zero afterwards.
+   - The "single active shell" limitation never materialised — per-project
+     directories removed it. Nothing to document.
 
 7. **Docs**
    - README: install instructions, supported plugins, known limitations

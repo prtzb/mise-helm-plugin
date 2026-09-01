@@ -86,7 +86,14 @@ mise install helm-plugin:helm-diff@3.9.0
 
 - `mise run lint` / `mise run format` — hk + stylua + actionlint
 - `mise run test-activation` — end-to-end: two projects pinning different
-  helm-diff versions, checked in both and on revisit
+  helm-diff versions on different helm majors, checked in both and on revisit
+- `mise run test-sync-hardening` — uninstall cleanup, corrupt installs, stray
+  files in the managed directory
+
+`helm-plugins-sync` exits non-zero if anything needed attention — a plugin
+installed without a readable `plugin.yaml`, or a non-symlink sitting in the
+managed directory — but only after linking everything it could. One broken
+plugin never blocks the others.
 
 ## Known limitations
 
@@ -96,8 +103,10 @@ mise install helm-plugin:helm-diff@3.9.0
   catch it.
 - **`helm plugin install` needs network at install time**, including for
   plugins whose `plugin.yaml` hooks download prebuilt binaries.
-- **Stale directories aren't garbage collected.** `mise uninstall` doesn't run
-  `helm-plugins-sync`, so a removed plugin's symlink survives until the next
-  `cd` into the project. Likewise, renaming or deleting a project orphans its
-  directory under `~/.local/state/helm-plugins/`, since the name is a hash of
-  the old path. Both are safe to `rm -rf`.
+- **Stale links are cleaned up lazily.** mise has no `BackendUninstall` hook,
+  so `mise uninstall` can't prune anything; the link disappears on the next
+  `helm-plugins-sync`, i.e. the next `cd` into the project. Harmless in the
+  meantime — helm 3 and 4 both skip dangling plugin symlinks silently.
+  Renaming or deleting a project likewise orphans its directory under
+  `~/.local/state/helm-plugins/`, since the name is a hash of the old path.
+  Both are safe to `rm -rf`.

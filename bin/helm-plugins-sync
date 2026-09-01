@@ -37,16 +37,28 @@ done
 
 mkdir -p "$target"
 
+if ! listing="$(mise ls --current --json 2>&1)"; then
+    echo "helm-plugins-sync: 'mise ls --current --json' failed:" >&2
+    echo "$listing" >&2
+    exit 1
+fi
+
 # "<short-tool-name>\t<install_path>" for every active, installed helm-plugin:* tool.
-active="$(mise ls --current --json | jq -r '
+# Tools listed in mise.toml but not yet installed are skipped rather than
+# reported: that's the ordinary state of a fresh clone before `mise install`.
+if ! active="$(printf '%s' "$listing" | jq -r '
     to_entries[] as $tool
     | select($tool.key | startswith("helm-plugin:"))
     | $tool.value[]
     | select(.active and .installed)
     | "\($tool.key | ltrimstr("helm-plugin:"))\t\(.install_path)"
-')"
+' 2>&1)"; then
+    echo "helm-plugins-sync: could not parse mise's tool list: $active" >&2
+    exit 1
+fi
 
 wanted=()
+broken=0
 
 while IFS=$'\t' read -r tool install_path; do
     [ -n "$tool" ] || continue
@@ -55,9 +67,14 @@ while IFS=$'\t' read -r tool install_path; do
     # necessarily the tool name, so discover it rather than assuming.
     manifest="$(find "$install_path/plugins" -mindepth 2 -maxdepth 2 -name plugin.yaml -print -quit 2>/dev/null || true)"
     if [ -z "$manifest" ]; then
-        echo "helm-plugins-sync: no plugin.yaml under $install_path/plugins for $tool" >&2
-        echo "  try: mise uninstall helm-plugin:$tool && mise install" >&2
-        exit 1
+        # Warn and carry on rather than aborting: one corrupt install should not
+        # stop every other plugin from being linked. Left out of `wanted`, so its
+        # stale link (if any) gets pruned below — an unusable plugin is no better
+        # than an absent one.
+        echo "helm-plugins-sync: $tool is installed but has no plugin.yaml under $install_path/plugins" >&2
+        echo "  skipping it; to repair: mise uninstall helm-plugin:$tool@<version> && mise install" >&2
+        broken=1
+        continue
     fi
 
     ln -sfn "$(dirname "$manifest")" "$target/$tool"
@@ -80,5 +97,10 @@ for entry in "$target"/*; do
         rm -f "$entry"
     else
         echo "helm-plugins-sync: $entry is not a symlink, leaving it alone" >&2
+        broken=1
     fi
 done
+
+# Non-zero only after all the useful work is done, so a broken plugin is
+# reported without preventing the others from being linked.
+exit "$broken"
