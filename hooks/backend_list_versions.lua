@@ -1,7 +1,5 @@
---- Lists available versions for a helm plugin by reading its GitHub tags.
---- Documentation: https://mise.jdx.dev/backend-plugin-development.html#backendlistversions
---- @param ctx {tool: string, options: table} Context
---- @return {versions: string[]} Available versions, ascending
+-- Lists available versions for a helm plugin by reading its GitHub tags.
+-- Documentation: https://mise.jdx.dev/backend-plugin-development.html#backendlistversions
 
 local http = require("http")
 local json = require("json")
@@ -46,6 +44,8 @@ local function github_headers()
     return headers
 end
 
+--- @param ctx {tool: string, options: table} Context
+--- @return {versions: string[]} Available versions, ascending
 function PLUGIN:BackendListVersions(ctx)
     local tool = ctx.tool
     local repo = PLUGIN:ResolveRepo(tool)

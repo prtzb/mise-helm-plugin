@@ -1,7 +1,5 @@
---- Installs a helm plugin by delegating to `helm plugin install`.
---- Documentation: https://mise.jdx.dev/backend-plugin-development.html#backendinstall
---- @param ctx {tool: string, version: string, install_path: string, download_path: string, options: table} Context
---- @return table Empty table on success
+-- Installs a helm plugin by delegating to `helm plugin install`.
+-- Documentation: https://mise.jdx.dev/backend-plugin-development.html#backendinstall
 
 local cmd = require("cmd")
 local file = require("file")
@@ -14,6 +12,8 @@ local function shq(s)
     return "'" .. s:gsub("'", [['\'']]) .. "'"
 end
 
+--- @param ctx {tool: string, version: string, install_path: string, download_path: string, options: table} Context
+--- @return table Empty table on success
 function PLUGIN:BackendInstall(ctx)
     local tool = ctx.tool
     local version = ctx.version
@@ -66,8 +66,7 @@ function PLUGIN:BackendInstall(ctx)
         log.warn("could not determine helm version, assuming helm 3: " .. tostring(version_out))
     end
 
-    local install_cmd =
-        string.format("helm plugin install %s --version %s%s", shq(repo_url), shq(version), verify_flag)
+    local install_cmd = string.format("helm plugin install %s --version %s%s", shq(repo_url), shq(version), verify_flag)
 
     log.debug("running: " .. install_cmd .. " (HELM_PLUGINS=" .. plugins_dir .. ")")
 

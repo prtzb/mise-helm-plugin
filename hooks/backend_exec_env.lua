@@ -1,7 +1,5 @@
---- Puts bin/helm-plugins-sync on PATH. Does NOT set HELM_PLUGINS.
---- Documentation: https://mise.jdx.dev/backend-plugin-development.html#backendexecenv
---- @param ctx {tool: string, version: string, install_path: string, options: table} Context
---- @return {env_vars: {key: string, value: string}[]}
+-- Puts bin/helm-plugins-sync on PATH. Does NOT set HELM_PLUGINS.
+-- Documentation: https://mise.jdx.dev/backend-plugin-development.html#backendexecenv
 
 local file = require("file")
 
@@ -23,6 +21,8 @@ local file = require("file")
 -- data directory. Unlike HELM_PLUGINS this is sound: PATH is the one key mise
 -- merges across tools, and the value depends only on the plugin's own location,
 -- so caching it per tool@version is harmless.
+--- @param ctx {tool: string, version: string, install_path: string, options: table} Context
+--- @return {env_vars: {key: string, value: string}[]}
 function PLUGIN:BackendExecEnv(ctx) -- luacheck: ignore ctx
     return {
         env_vars = {

@@ -17,11 +17,14 @@ run = "stylua metadata.lua hooks/"
 
 [tasks.lint]
 description = "Lint Lua scripts and GitHub Actions using hk"
-run = "hk check"
+# --all, not the default: plain `hk check` only looks at git-modified files, so
+# on CI's clean checkout it finds nothing and passes vacuously. The pre-commit
+# hook in hk.pkl still runs against modified files only, which is right there.
+run = "hk check --all"
 
 [tasks.lint-fix]
 description = "Fix linting issues"
-run = "hk fix"
+run = "hk fix --all"
 
 [tasks.ci]
 description = "Run all CI checks"
