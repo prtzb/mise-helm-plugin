@@ -89,6 +89,8 @@ mise install helm-plugin:helm-diff@3.9.0
   helm-diff versions on different helm majors, checked in both and on revisit
 - `mise run test-sync-hardening` — uninstall cleanup, corrupt installs, stray
   files in the managed directory
+- `mise run test-activate-hook` — drives a real `mise activate` zsh session and
+  checks that `cd` alone rebuilds the directory (skipped if zsh is absent)
 
 `helm-plugins-sync` exits non-zero if anything needed attention — a plugin
 installed without a readable `plugin.yaml`, or a non-symlink sitting in the

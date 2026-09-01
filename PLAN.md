@@ -230,10 +230,13 @@ a dependency on `mise activate` for the `enter` hook to fire, and `jq`.
 4. **Activation** — DONE (2026-08-31). Settled as `bin/helm-plugins-sync`
    plus per-project `[env]`/`[hooks]` wiring; see §3 for why the hook route
    failed. `mise run test-activation` covers two projects pinning different
-   helm-diff versions, including revisiting the first, and passes.
-   - Still untested: that the `enter` hook actually fires under a real
-     `eval "$(mise activate)"` shell, as opposed to the test calling
-     `helm-plugins-sync` directly.
+   helm-diff versions on different helm majors, including revisiting the
+   first, and passes.
+   - The `enter` hook firing under a real `eval "$(mise activate zsh)"` shell
+     was confirmed 2026-09-01 and is covered by `mise run test-activate-hook`:
+     starting from a deleted directory, `cd` alone rebuilds it. Negative
+     control checked too — with activation removed from the shell, nothing is
+     created, so the test is not passing vacuously.
 
 5. **Add remaining plugins**
    - Add `helm-secrets`, and whatever others your projects use, to the

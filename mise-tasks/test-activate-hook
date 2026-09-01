@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+#MISE description="Verify the [hooks] enter entry fires under a real `mise activate` shell"
+#
+# The other tests invoke helm-plugins-sync directly, which proves the script
+# works but not that it ever runs. This drives a real interactive zsh with
+# `eval "$(mise activate zsh)"` and only cds — everything else must follow.
+set -euo pipefail
+
+plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+diff_version="${DIFF_VERSION:-3.9.0}"
+secrets_version="${SECRETS_VERSION:-4.6.0}"
+
+command -v zsh >/dev/null || {
+    echo "SKIP: zsh not installed" >&2
+    exit 0
+}
+
+mise plugin link --force helm-plugin "$plugin_dir"
+
+proj="$(mktemp -d)"
+zdot="$(mktemp -d)"
+trap 'rm -rf "$proj" "$zdot" "${target:-}"' EXIT
+
+cat >"$proj/mise.toml" <<EOF
+[tools]
+helm = "3"
+"helm-plugin:helm-diff" = "$diff_version"
+"helm-plugin:helm-secrets" = "$secrets_version"
+
+[env]
+HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"
+
+[hooks]
+enter = "helm-plugins-sync"
+EOF
+
+cd "$proj"
+mise install >/dev/null
+target="$(mise env -s bash | sed -n 's/^export HELM_PLUGINS=//p')"
+
+# Start from nothing, so anything present afterwards was made by the hook.
+rm -rf "$target"
+
+# ZDOTDIR keeps the user's own dotfiles out of it: mise activation and nothing else.
+cat >"$zdot/.zshrc" <<'EOF'
+export PATH="$HOME/.local/bin:$PATH"
+export MISE_YES=1
+eval "$(mise activate zsh)"
+EOF
+
+# Only a cd. No explicit helm-plugins-sync call anywhere.
+printf 'cd %s\n' "$proj" >"$zdot/session.zsh"
+ZDOTDIR="$zdot" zsh -i <"$zdot/session.zsh" >/dev/null 2>&1 || true
+
+links="$(ls "$target" 2>/dev/null | sort | tr '\n' ' ' | sed 's/ $//')"
+if [ "$links" = "helm-diff helm-secrets" ]; then
+    echo "PASS: cd alone fired the enter hook and built '$links'"
+else
+    echo "FAIL: expected 'helm-diff helm-secrets' after cd, got '$links'" >&2
+    echo "  the [hooks] enter entry did not run — check that mise activate is in effect" >&2
+    exit 1
+fi
