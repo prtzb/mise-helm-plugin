@@ -143,28 +143,16 @@ shellcheck) was applied on 2026-09-02 — see "Done" at the bottom.
 
 ## Substantive refactor
 
-- [ ] **Make the plugin registry extensible via `ctx.options`.** The hardcoded
-      map in `metadata.lua` is the plugin's main structural limitation, and
-      mise hands over the escape hatch for free — `options` is in the ctx of
-      all three hooks (per the verified table in PLAN.md). A consuming project
-      could then write:
+- [x] **Make the plugin registry extensible via `ctx.options`.** Done
+      2026-09-02. Verified the premise first: mise forwards arbitrary tool-table
+      keys to both `BackendListVersions` and `BackendInstall` as `ctx.options`,
+      with `version` correctly stripped out
+      (`{"repo":"helm-unittest/helm-unittest","extra":"xyz"}`). `PLUGIN.tools`
+      is now a shorthand, not a gate.
 
-      ```toml
-      "helm-plugin:helm-unittest" = { version = "0.5.0", repo = "helm-unittest/helm-unittest" }
-      ```
-
-      and `ResolveRepo` becomes
-      `ctx.options.repo or PLUGIN.tools[tool] or error(...)`. Roughly ten
-      lines, and it turns "add entries to `metadata.lua` as you need them" —
-      which requires forking the plugin — into ordinary configuration, while
-      keeping the built-in map as shorthand for the common two.
-
-      **Verify first** that mise actually forwards arbitrary table keys as
-      `options` for backend tools. If it does, this is the highest-value change
-      on this list.
-
-- [ ] **`ResolveRepo` / `ResolveRepoUrl` use `:` but never touch `self`** —
-      `metadata.lua:30,57`. Misleading; they reference `PLUGIN` explicitly.
+- [x] **`ResolveRepo` / `ResolveRepoUrl` use `:` but never touch `self`** —
+      converted to plain `.` functions as part of the same change, since they
+      grew a second parameter anyway.
 
 - [ ] **`metadata.lua` carries metadata + registry data + resolution logic.**
       If mise supports plugin-local `lib/` modules, the registry belongs there.
@@ -282,8 +270,41 @@ All three tests and all four lint steps pass.
 predating fix (5) — `a-*`, `b-*`, `tmp.*`. All safe to `rm -rf`; the `1-*` and
 `2-*` entries belong to `example/1` and `example/2` and should stay.
 
+## Done — registry refactor (2026-09-02)
+
+`PLUGIN.tools` is a shorthand rather than a gate: any GitHub-hosted plugin can
+be named inline with `repo = "owner/repo"`. `ResolveRepo(tool, options)` takes
+the option first, falls back to the built-in map, and validates the slug shape
+so a full URL is rejected up front rather than installing and then failing to
+resolve a version.
+
+Verified before writing any code that mise really does forward arbitrary tool
+options to the hooks; then end to end, that a name absent from `PLUGIN.tools`
+installs, links, and is picked up by helm. `test-activation` gained a third
+project reaching helm-diff purely through the inline option, plus assertions on
+both error messages. Aimed at helm-diff rather than a genuinely new dependency
+on purpose: helm-unittest's current releases use a `platformHooks` field that
+neither helm 3.21 nor helm 4.2 understands, so it would have made the test fail
+for reasons unrelated to resolution.
+
+**Two things this turned up, both fixed or documented:**
+
+- **The tests depended on ambient trust state.** An untrusted config with
+  `[env]`/`[hooks]` doesn't parse at all, and the generated temp configs were
+  only working because this machine had 66 stale trust entries from earlier
+  runs. A clean CI runner has none, so the new `test` job would likely have
+  failed on its first run. All three tests now `mise trust` explicitly at every
+  point they write or rewrite a config — trust is recorded per content, so a
+  rewrite needs re-trusting. Confirmed by deleting the stale entries and
+  re-running the suite green.
+- **The tool name is the identity, not the repo.** Install paths are
+  `helm-plugin-<tool>/<version>`, with no repo component. Measured: project x
+  pinned `samename@3.9.0` -> helm-diff, project y pinned the same name and
+  version -> helm-secrets, and y was told "all tools are installed" while
+  silently getting helm-diff. Not fixable from inside the plugin; documented
+  under Known limitations in the README.
+
 ### Next up
 
-Nothing below this line is started. Remaining, roughly by value: the
-`ctx.options` registry refactor, the PLAN.md split, then the small stuff
-(dotglob, prerelease comment, LICENSE, CLAUDE.md).
+Nothing below this line is started. Remaining, roughly by value: the PLAN.md
+split, then the small stuff (dotglob, prerelease comment, LICENSE, CLAUDE.md).

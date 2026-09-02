@@ -26,7 +26,7 @@ cleanup() {
 trap cleanup EXIT
 
 make_project() {
-    local dir="$1" helm_major="$2" diff_version="$3" secrets_version="$4"
+    local dir="$1" helm_major="$2" diff_version="$3" secrets_version="$4" diff_style="${5:-shorthand}"
     mkdir -p "$dir"
     {
         echo '[tools]'
@@ -35,7 +35,18 @@ make_project() {
         # time, which BackendInstall detects; helm-secrets < 4.6.5 won't load on
         # helm 4 at all, so the versions differ per project by necessity.
         echo "helm = \"$helm_major\""
-        echo "\"helm-plugin:helm-diff\" = \"$diff_version\""
+        if [ "$diff_style" = inline ]; then
+            # "diff-inline" is deliberately absent from PLUGIN.tools, so the repo
+            # can only come from the inline option that mise forwards to the
+            # hooks as ctx.options. helm still reports the plugin as "diff": the
+            # name comes from plugin.yaml, not from the mise tool name. Aimed at
+            # helm-diff rather than some third plugin on purpose — this is a test
+            # of resolution, and a second real dependency would only add ways for
+            # it to fail for unrelated reasons.
+            echo "\"helm-plugin:diff-inline\" = { version = \"$diff_version\", repo = \"databus23/helm-diff\" }"
+        else
+            echo "\"helm-plugin:helm-diff\" = \"$diff_version\""
+        fi
         [ "$secrets_version" != none ] && echo "\"helm-plugin:helm-secrets\" = \"$secrets_version\""
         echo
         echo '[env]'
@@ -45,11 +56,19 @@ make_project() {
         # Bare name, not a path: BackendExecEnv puts the plugin's bin/ on PATH.
         echo 'enter = "helm-plugins-sync"'
     } >"$dir/mise.toml"
+
+    # Explicit, not incidental: an untrusted config with [env]/[hooks] fails to
+    # parse at all, so without this the test depends on the machine happening to
+    # have trusted this path before. A clean CI runner never has.
+    mise trust "$dir/mise.toml" >/dev/null
 }
 
 # a: helm 3, one plugin.  b: helm 4, two plugins, incl. a helm-4-capable secrets.
+# c: helm 3, one plugin named only by an inline repo rather than a built-in
+#    shorthand. a and b keep covering PLUGIN.tools.
 make_project "$root/a" 3 3.9.0 none
 make_project "$root/b" 4 3.10.0 4.7.7
+make_project "$root/c" 3 3.9.0 none inline
 
 fail=0
 
@@ -90,9 +109,43 @@ check() {
 check "$root/a" 3.9.0 1
 check "$root/b" 3.10.0 2
 check "$root/a" 3.9.0 1
+# Same expectations as a, reached entirely through the inline repo option.
+check "$root/c" 3.9.0 1
+
+# Resolution failures should say what to do about them, since an unknown plugin
+# name is now a normal thing to hit rather than a hard wall.
+# $1=label  $2=tool name  $3=[tools] entry  $4=expected substring
+check_error() {
+    local label="$1" tool="$2" entry="$3" expected="$4" out
+    mkdir -p "$root/err"
+    printf '[tools]\n%s\n' "$entry" >"$root/err/mise.toml"
+    # Re-trust on every rewrite: trust is recorded per file content, and an
+    # untrusted config is skipped rather than parsed — which would make these
+    # assertions pass without the inline options ever reaching the hook.
+    mise trust "$root/err/mise.toml" >/dev/null
+    cd "$root/err"
+
+    out="$(mise ls-remote "helm-plugin:$tool" 2>&1 || true)"
+    if [[ "$out" == *"$expected"* ]]; then
+        echo "  [$label] reported: ...$expected..."
+    else
+        echo "FAIL [$label]: expected an error containing '$expected', got:" >&2
+        echo "$out" >&2
+        fail=1
+    fi
+}
+
+echo "=== resolution errors ==="
+check_error "unknown-tool" "totally-unknown" \
+    '"helm-plugin:totally-unknown" = "1.0.0"' \
+    'name the repo inline'
+check_error "bad-repo" "bad" \
+    '"helm-plugin:bad" = { version = "1.0.0", repo = "https://github.com/foo/bar" }' \
+    'expected an "owner/repo" GitHub slug'
+echo
 
 if [ "$fail" -eq 0 ]; then
-    echo "PASS: both projects saw their own pinned versions, including on revisit"
+    echo "PASS: every project saw its own pinned versions, by shorthand and by inline repo"
 else
     echo "FAILED" >&2
     exit 1

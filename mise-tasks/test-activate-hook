@@ -35,6 +35,10 @@ enter = "helm-plugins-sync"
 EOF
 
 cd "$proj"
+# MISE_YES in the zshrc answers the prompt inside the session, but the setup
+# steps below run outside it and an untrusted config with [env]/[hooks] won't
+# parse at all.
+mise trust >/dev/null
 mise install >/dev/null
 target="$(mise env -s bash | sed -n 's/^export HELM_PLUGINS=//p')"
 

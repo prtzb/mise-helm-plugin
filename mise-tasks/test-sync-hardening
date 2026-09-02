@@ -41,6 +41,10 @@ helm = "3"
 HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"
 EOF
 
+# An untrusted config with [env] fails to parse, so trust it rather than relying
+# on this path having been trusted by an earlier run. A clean CI runner hasn't.
+mise trust >/dev/null
+
 mise install >/dev/null
 target="$(mise env -s bash | sed -n 's/^export HELM_PLUGINS=//p')"
 secrets_plugins="$(mise where "helm-plugin:helm-secrets@$secrets_version")/plugins"
@@ -97,6 +101,7 @@ rm -rf "$target/helm-diff"
 echo "==> dropping a plugin from mise.toml prunes its link"
 # Not `sed -i ''` — the empty-suffix form is BSD-only and fails on Linux/CI.
 grep -v helm-secrets mise.toml >mise.toml.next && mv mise.toml.next mise.toml
+mise trust >/dev/null # trust is per content, so re-trust after the rewrite
 check "pruned" 0 "helm-diff"
 
 if [ "$fail" -eq 0 ]; then

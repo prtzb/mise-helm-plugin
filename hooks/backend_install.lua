@@ -29,7 +29,7 @@ function PLUGIN:BackendInstall(ctx)
         error("Install path cannot be empty")
     end
 
-    local repo_url = PLUGIN:ResolveRepoUrl(tool)
+    local repo_url = PLUGIN.ResolveRepoUrl(tool, ctx.options)
     local plugins_dir = file.join_path(install_path, "plugins")
 
     -- helm's installer expects HELM_PLUGINS to exist.

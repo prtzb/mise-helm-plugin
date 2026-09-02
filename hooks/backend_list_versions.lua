@@ -51,7 +51,7 @@ end
 --- @return {versions: string[]} Available versions, ascending
 function PLUGIN:BackendListVersions(ctx)
     local tool = ctx.tool
-    local repo = PLUGIN:ResolveRepo(tool)
+    local repo = PLUGIN.ResolveRepo(tool, ctx.options)
     local headers = github_headers()
 
     local versions = {}

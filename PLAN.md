@@ -20,6 +20,12 @@ instead of a `postinstall` hook calling `helm plugin install` directly.
   Lean on `helm plugin install` itself to do installation — see Architecture.
 - Do **not** build a general-purpose registry of all known helm plugins.
   Support only the plugins your projects actually use; add more later as needed.
+  Revised 2026-09-02: the bundled map stayed small, but it is no longer the only
+  way in. mise forwards arbitrary tool options to every hook as `ctx.options`
+  (measured), so a project can name any GitHub-hosted plugin inline with
+  `repo = "owner/repo"`. The map is now a shorthand rather than a gate, which
+  keeps the non-goal — we still curate nothing — while removing the need to fork
+  the plugin to use it.
 - Do **not** try to solve global vs. per-shell `HELM_PLUGINS` conflicts across
   unrelated tools outside mise's control. Assume `HELM_PLUGINS` is always
   managed by this plugin while mise is active.

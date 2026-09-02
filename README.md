@@ -75,15 +75,32 @@ per project is what makes both work side by side.
   the plugins still install, but `$HELM_PLUGINS` won't be rebuilt
   automatically — run `helm-plugins-sync` by hand.
 
-## Supported plugins
+## Plugins
+
+Two have built-in shorthands:
 
 | Tool | Repo |
 | --- | --- |
 | `helm-diff` | [databus23/helm-diff](https://github.com/databus23/helm-diff) |
 | `helm-secrets` | [jkroepke/helm-secrets](https://github.com/jkroepke/helm-secrets) |
 
-This is deliberately not a general-purpose registry. Add entries to
-`PLUGIN.tools` in `metadata.lua` as you need them.
+Any other GitHub-hosted plugin works too — name the repo inline and mise
+forwards it to the backend as a tool option:
+
+```toml
+[tools]
+"helm-plugin:<tool-name>" = { version = "<version>", repo = "<owner>/<repo>" }
+```
+
+`<tool-name>` is yours to choose: it names the mise tool, while helm takes the
+plugin's real name from its `plugin.yaml`. The two need not match.
+
+`repo` must be an `owner/repo` slug rather than a URL. Version listing goes
+through the GitHub tags API, so a plugin hosted anywhere else could install but
+would never resolve a version — the backend rejects the URL form up front
+instead of failing later. Adding a shorthand to `PLUGIN.tools` in
+`metadata.lua` is still worth it for plugins you use across many projects, but
+it is no longer required.
 
 ## Development
 
@@ -118,6 +135,12 @@ plugin never blocks the others.
   catch it.
 - **`helm plugin install` needs network at install time**, including for
   plugins whose `plugin.yaml` hooks download prebuilt binaries.
+- **The tool name is the identity, not the repo.** mise keys install paths on
+  `helm-plugin-<tool>/<version>`, which doesn't include the repo. Two projects
+  pinning the same tool name at the same version with *different* `repo` values
+  therefore share one install: the first to install wins and the second is told
+  "all tools are installed" while quietly getting the other project's plugin.
+  Measured, not hypothetical. Give distinct plugins distinct tool names.
 - **Stale links are cleaned up lazily.** mise has no `BackendUninstall` hook,
   so `mise uninstall` can't prune anything; the link disappears on the next
   `helm-plugins-sync`, i.e. the next `cd` into the project. Harmless in the
