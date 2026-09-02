@@ -62,6 +62,29 @@ deprecation warning as of 3.21) and helm 4 refuses to load the plugin at all.
 4.6.5 dropped the bare `command`, so 4.6.5+ is required on helm 4. Pinning helm
 per project is what makes both work side by side.
 
+`example/3` is the one you can actually *run*. It pins helm-unittest — which
+has no built-in shorthand, so its repo is given inline — next to helm-diff,
+which does have one, and ships a small chart with two tests to run them
+against:
+
+```sh
+cd example/3 && mise install
+helm unittest chart
+```
+
+```
+Charts:      1 passed, 1 total
+Test Suites: 1 passed, 1 total
+Tests:       2 passed, 2 total
+```
+
+It pins helm-unittest 1.0.3 rather than the latest for the same class of reason
+as the helm-secrets pins above: 1.1.0 moved `plugin.yaml` to `platformCommand`
+and `platformHooks`, and neither helm 3.21 nor helm 4.2 can parse
+`platformHooks` — both refuse the plugin with `unknown field "platformHooks"`.
+1.0.3 is the last release using the classic `command`/`hooks` form, and it works
+on both majors.
+
 ## Requirements
 
 - `helm` on `PATH` — installation delegates to `helm plugin install` rather

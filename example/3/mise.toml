@@ -1,0 +1,26 @@
+# A plugin that isn't built in, named inline — and a chart to actually run it on.
+#
+# helm-diff uses the shorthand from PLUGIN.tools; helm-unittest is not in that
+# map and doesn't need to be, because the repo is given inline. The two forms
+# coexist in one [tools] table, which is the point of this example.
+#
+# The pin is 1.0.3 rather than the latest: helm-unittest 1.1.0 moved its
+# plugin.yaml to `platformCommand`/`platformHooks`, and neither helm 3.21 nor
+# helm 4.2 can parse `platformHooks` yet — they fail with `unknown field
+# "platformHooks"`. 1.0.3 is the last release using the classic `command`/
+# `hooks` form, and it works on both majors.
+#
+# Try it:
+#     cd example/3 && mise install
+#     helm unittest chart        # in a shell with `mise activate`
+#     mise exec -- helm-plugins-sync && mise exec -- helm unittest chart
+[tools]
+helm = "3"
+"helm-plugin:helm-diff" = "3.9.0"
+"helm-plugin:helm-unittest" = { version = "1.0.3", repo = "helm-unittest/helm-unittest" }
+
+[env]
+HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"
+
+[hooks]
+enter = "helm-plugins-sync"
