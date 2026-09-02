@@ -319,6 +319,28 @@ The snippet duplication came out as a partial: only `DESIGN.md`'s copy existed
 purely to be read, so it now points at `example/1/mise.toml`. The rest are
 load-bearing and stay.
 
+## Done — reported bug (2026-09-02)
+
+**`mise run test` could drop you out of your shell.** Reported after a run
+where the tests themselves all passed. `test-activate-hook` starts `zsh -i`,
+and `-i` switches on job control, which acts on the *controlling terminal*
+(`/dev/tty`) rather than on stdin — so the existing stdin/stdout redirects
+never kept it away from the terminal the suite was launched from. It takes the
+foreground process group and returns it on exit, which can leave the invoking
+shell in the background.
+
+Fixed by running that shell via `perl -MPOSIX=setsid` in a new session, where
+it has no controlling terminal to take, plus `+m` to disable job control
+outright. perl rather than `setsid(1)`, which macOS doesn't ship. `-i` has to
+stay: the hook under test only fires in an interactive shell.
+
+Honest caveat: not reproduced directly. Two attempts to synthesise a pty both
+hung — itself a sign that `zsh -i` sharing a controlling terminal is fragile,
+but not a measurement of the reported symptom. The fix is justified by
+construction (a new session has no controlling terminal to touch) rather than
+by a before/after reproduction. Verified that the rc still runs, `chpwd` still
+fires, the test still passes, and the negative control still fails.
+
 ### Next up
 
 Three left, all small: dotglob in the prune loop, a comment noting mise already

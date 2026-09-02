@@ -54,7 +54,21 @@ EOF
 
 # Only a cd. No explicit helm-plugins-sync call anywhere.
 printf 'cd %s\n' "$proj" >"$zdot/session.zsh"
-ZDOTDIR="$zdot" zsh -i <"$zdot/session.zsh" >/dev/null 2>&1 || true
+
+# `-i` is required — the hook under test only fires in an interactive shell —
+# but it also switches on job control, and job control acts on the *controlling
+# terminal* (/dev/tty), not on stdin. Redirecting stdin and stdout therefore
+# does not keep this shell away from the terminal you launched the test from:
+# it takes the foreground process group and hands it back on exit, which can
+# leave your own shell in the background and drop you out of it when the suite
+# finishes.
+#
+# setsid puts it in a new session with no controlling terminal at all, so there
+# is nothing for it to grab; +m disables job control on top of that. perl rather
+# than setsid(1), which macOS doesn't ship. Verified that the rc still runs and
+# chpwd still fires under both.
+ZDOTDIR="$zdot" perl -MPOSIX=setsid -e 'setsid(); exec @ARGV or die' \
+    -- zsh -i +m <"$zdot/session.zsh" >/dev/null 2>&1 || true
 
 links="$(find "$target" -mindepth 1 -maxdepth 1 2>/dev/null | sed 's|.*/||' | sort | tr '\n' ' ' | sed 's/ $//')"
 if [ "$links" = "helm-diff helm-secrets" ]; then
