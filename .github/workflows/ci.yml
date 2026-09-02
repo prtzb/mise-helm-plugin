@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  ci:
+  lint:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -17,5 +17,22 @@ jobs:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
       - run: mise run ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Separate from lint: these install real helm plugins over the network, so
+  # they're slower and can fail for reasons lint can't. fail-fast is off so a
+  # failure on one OS doesn't hide the result on the other — the point of
+  # running both is catching GNU/BSD divergence.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: mise run test
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

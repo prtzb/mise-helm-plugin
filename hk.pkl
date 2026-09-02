@@ -15,6 +15,10 @@ local linters = new Mapping<String, Step> {
         glob = ".github/workflows/*.{yml,yaml}"
         check = "actionlint {{files}}"
     }
+    ["shellcheck"] {
+        glob = "{bin,mise-tasks}/*"
+        check = "shellcheck -s bash {{files}}"
+    }
 }
 
 hooks {

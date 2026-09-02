@@ -14,16 +14,21 @@ command -v helm >/dev/null || {
     exit 1
 }
 
-mise plugin link --force helm-plugin "$plugin_dir"
-
 root="$(mktemp -d)"
-secrets_plugins="$(mise where "helm-plugin:helm-secrets@$secrets_version" 2>/dev/null || true)/plugins"
-# Always put the install back, even if an assertion aborts the run.
+
+# The corruption case below mutates an install in place. Point MISE_DATA_DIR at
+# a scratch directory first, so it can only ever damage this test's own copy —
+# a kill -9 mid-run used to leave the user's real ~/.local/share/mise install of
+# helm-secrets broken. The cost is a fresh install per run; downloads still come
+# from the shared MISE_CACHE_DIR, so it's re-extraction rather than re-download.
+export MISE_DATA_DIR="$root/mise-data"
+
 cleanup() {
-    [ -d "$secrets_plugins.bak" ] && mv "$secrets_plugins.bak" "$secrets_plugins"
-    rm -rf "$root" "${target:-}"
+    rm -rf "$root" ${target:+"$target"}
 }
 trap cleanup EXIT
+
+mise plugin link --force helm-plugin "$plugin_dir"
 
 cd "$root"
 cat >mise.toml <<EOF
@@ -48,7 +53,7 @@ check() {
     local actual_exit=0 actual_links
 
     mise exec -- helm-plugins-sync || actual_exit=$?
-    actual_links="$(ls "$target" 2>/dev/null | sort | tr '\n' ' ' | sed 's/ $//')"
+    actual_links="$(find "$target" -mindepth 1 -maxdepth 1 2>/dev/null | sed 's|.*/||' | sort | tr '\n' ' ' | sed 's/ $//')"
 
     if [ "$actual_exit" != "$expected_exit" ]; then
         echo "FAIL [$label]: expected exit $expected_exit, got $actual_exit" >&2
@@ -77,8 +82,21 @@ touch "$target/keep-me"
 check "stray-file" 1 "helm-diff helm-secrets keep-me"
 rm -f "$target/keep-me"
 
+echo "==> a stray directory is refused, not linked into"
+# Replace the good link with a real directory, which `ln -sfn` would otherwise
+# link *into* rather than replace.
+rm -f "$target/helm-diff"
+mkdir "$target/helm-diff"
+check "stray-dir" 1 "helm-diff helm-secrets"
+if [ -L "$target/helm-diff" ] || [ -n "$(ls -A "$target/helm-diff")" ]; then
+    echo "FAIL [stray-dir]: $target/helm-diff was replaced or written into" >&2
+    fail=1
+fi
+rm -rf "$target/helm-diff"
+
 echo "==> dropping a plugin from mise.toml prunes its link"
-sed -i '' '/helm-secrets/d' mise.toml
+# Not `sed -i ''` — the empty-suffix form is BSD-only and fails on Linux/CI.
+grep -v helm-secrets mise.toml >mise.toml.next && mv mise.toml.next mise.toml
 check "pruned" 0 "helm-diff"
 
 if [ "$fail" -eq 0 ]; then

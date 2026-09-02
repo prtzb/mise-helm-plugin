@@ -84,11 +84,15 @@ mise ls-remote helm-plugin:helm-diff
 mise install helm-plugin:helm-diff@3.9.0
 ```
 
-- `mise run lint` / `mise run format` — hk + stylua + actionlint
+- `mise run lint` / `mise run format` — hk + stylua + actionlint + shellcheck
+- `mise run test` — all three end-to-end tests below, in sequence. Needs network
+  and installs real helm plugins, so it's a separate CI job from `mise run ci`,
+  which stays lint-only and hermetic.
 - `mise run test-activation` — end-to-end: two projects pinning different
   helm-diff versions on different helm majors, checked in both and on revisit
 - `mise run test-sync-hardening` — uninstall cleanup, corrupt installs, stray
-  files in the managed directory
+  files and directories in the managed directory. Runs against a scratch
+  `MISE_DATA_DIR`, so the corruption case can't touch your real installs.
 - `mise run test-activate-hook` — drives a real `mise activate` zsh session and
   checks that `cd` alone rebuilds the directory (skipped if zsh is absent)
 

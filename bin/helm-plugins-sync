@@ -77,7 +77,18 @@ while IFS=$'\t' read -r tool install_path; do
         continue
     fi
 
-    ln -sfn "$(dirname "$manifest")" "$target/$tool"
+    # `ln -sfn` onto an existing *directory* links into it rather than replacing
+    # it, silently corrupting whatever is there. The prune loop below refuses to
+    # delete non-symlinks; refuse to overwrite them here too, so the rule holds
+    # for directories as much as for files.
+    dest="$target/$tool"
+    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+        echo "helm-plugins-sync: $dest is not a symlink, refusing to replace it" >&2
+        broken=1
+        continue
+    fi
+
+    ln -sfn "$(dirname "$manifest")" "$dest"
     wanted+=("$tool")
 done <<<"$active"
 

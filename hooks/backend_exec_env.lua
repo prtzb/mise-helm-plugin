@@ -1,6 +1,7 @@
 -- Puts bin/helm-plugins-sync on PATH. Does NOT set HELM_PLUGINS.
 -- Documentation: https://mise.jdx.dev/backend-plugin-development.html#backendexecenv
 
+--- @type file
 local file = require("file")
 
 -- This hook cannot do activation. Two measured constraints rule it out — see

@@ -1,8 +1,11 @@
 -- Installs a helm plugin by delegating to `helm plugin install`.
 -- Documentation: https://mise.jdx.dev/backend-plugin-development.html#backendinstall
 
+--- @type cmd
 local cmd = require("cmd")
+--- @type file
 local file = require("file")
+--- @type log
 local log = require("log")
 
 --- POSIX single-quote escaping, for the few places a shell string is unavoidable.
@@ -39,15 +42,12 @@ function PLUGIN:BackendInstall(ctx)
     -- HELM_PLUGINS is passed structurally via cmd.exec's env option rather than
     -- prefixed onto a shell command line, so there's nothing to quote.
     --
-    -- PATH/HOME are passed explicitly because the docs don't state whether `env`
-    -- merges with the inherited environment or replaces it; passing them is
-    -- harmless if it merges and necessary if it doesn't. helm shells out to git,
-    -- and git needs both.
-    local env = {
-        HELM_PLUGINS = plugins_dir,
-        PATH = os.getenv("PATH"),
-        HOME = os.getenv("HOME"),
-    }
+    -- cmd.exec's `env` merges with the inherited environment rather than
+    -- replacing it (measured 2026-09-01: a variable set only in the calling
+    -- shell was visible to the command, and PATH arrived at full length). So
+    -- HELM_PLUGINS is the only key worth setting — PATH and HOME, plus the
+    -- proxy and TLS variables git needs, all come through on their own.
+    local env = { HELM_PLUGINS = plugins_dir }
 
     -- helm 4 verifies plugin signatures by default and refuses any git source
     -- with "plugin source does not support verification", which is every plugin

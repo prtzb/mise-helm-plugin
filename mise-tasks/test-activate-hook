@@ -52,7 +52,7 @@ EOF
 printf 'cd %s\n' "$proj" >"$zdot/session.zsh"
 ZDOTDIR="$zdot" zsh -i <"$zdot/session.zsh" >/dev/null 2>&1 || true
 
-links="$(ls "$target" 2>/dev/null | sort | tr '\n' ' ' | sed 's/ $//')"
+links="$(find "$target" -mindepth 1 -maxdepth 1 2>/dev/null | sed 's|.*/||' | sort | tr '\n' ' ' | sed 's/ $//')"
 if [ "$links" = "helm-diff helm-secrets" ]; then
     echo "PASS: cd alone fired the enter hook and built '$links'"
 else

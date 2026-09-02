@@ -4,9 +4,13 @@ MISE_USE_VERSIONS_HOST = "0"
 [tools]
 actionlint = "latest"
 hk = "latest"
+# helm-plugins-sync needs jq at runtime; the tests exercise it, so CI needs it
+# too rather than relying on the runner image happening to ship it.
+jq = "latest"
 lua = "5.4"
 lua-language-server = "latest"
 pkl = "latest"
+shellcheck = "latest"
 stylua = "latest"
 # Hard dependency of the backend itself, not just of the dev tooling.
 helm = "latest"
@@ -26,8 +30,22 @@ run = "hk check --all"
 description = "Fix linting issues"
 run = "hk fix --all"
 
+[tasks.test]
+description = "Run all end-to-end tests (needs network; installs real helm plugins)"
+# Sequential rather than `depends`, which would run them in parallel: all three
+# call `mise plugin link --force helm-plugin` against the same global path, and
+# two of them install into the shared data dir. Racing on that is asking for
+# intermittent failures no one can reproduce.
+run = [
+    "mise run test-activation",
+    "mise run test-sync-hardening",
+    "mise run test-activate-hook",
+]
+
 [tasks.ci]
-description = "Run all CI checks"
-# Note: test-env-merge is deliberately not part of CI — it needs network access
-# and installs real helm plugins.
+description = "Run the fast, hermetic checks"
+# Deliberately lint-only, so it stays quick to run locally and needs no network.
+# The end-to-end tests are a separate `test` job in .github/workflows/ci.yml —
+# they install real helm plugins over the network, which is worth doing on CI
+# but not on every local invocation.
 depends = ["lint"]

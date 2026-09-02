@@ -150,6 +150,7 @@ PLUGIN = {}
 
 ---@class http
 ---@field get fun(opts: HttpRequestOpts): HttpResponse Send a GET request
+---@field try_get fun(opts: HttpRequestOpts): HttpResponse?, string? Send a GET request, returning (nil, err) instead of raising
 ---@field head fun(opts: HttpRequestOpts): HttpResponse Send a HEAD request (no body)
 ---@field download_file fun(opts: HttpRequestOpts, path: string) Download a file to disk
 local http = {}
@@ -168,6 +169,7 @@ local json = {}
 ---@field exists fun(path: string): boolean Check if a file exists
 ---@field symlink fun(src: string, dst: string) Create a symbolic link
 ---@field join_path fun(...: string): string Join path components
+---@field glob fun(pattern: string): string[] Expand a glob pattern into matching paths
 local file = {}
 
 -- cmd module ---------------------------------------------------------

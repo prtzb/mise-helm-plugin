@@ -1,8 +1,11 @@
 -- Lists available versions for a helm plugin by reading its GitHub tags.
 -- Documentation: https://mise.jdx.dev/backend-plugin-development.html#backendlistversions
 
+--- @type http
 local http = require("http")
+--- @type json
 local json = require("json")
+--- @type semver
 local semver = require("semver")
 
 -- GitHub caps per_page at 100; a few pages is plenty for any helm plugin.
@@ -56,9 +59,12 @@ function PLUGIN:BackendListVersions(ctx)
     for page = 1, MAX_PAGES do
         local url = string.format("https://api.github.com/repos/%s/tags?per_page=%d&page=%d", repo, PER_PAGE, page)
 
+        -- try_get signals failure as (nil, err), so `err` alone ought to be
+        -- enough — but checking `resp` too keeps a hypothetical (nil, nil) from
+        -- surfacing as an "index a nil value" traceback instead of this message.
         local resp, err = http.try_get({ url = url, headers = headers })
-        if err then
-            error(string.format("failed to fetch tags for %s from %s: %s", tool, repo, err))
+        if err or not resp then
+            error(string.format("failed to fetch tags for %s from %s: %s", tool, repo, err or "no response"))
         end
         if resp.status_code ~= 200 then
             error(string.format("GitHub API returned status %d for %s (%s)", resp.status_code, tool, repo))

@@ -16,7 +16,14 @@ command -v helm >/dev/null || {
 mise plugin link --force helm-plugin "$plugin_dir"
 
 root="$(mktemp -d)"
-trap 'rm -rf "$root"' EXIT
+# Each project's HELM_PLUGINS lives under XDG state, keyed on a hash of its
+# config_root — outside $root, so it needs cleaning up separately or every run
+# leaves another orphan behind. Collected as the projects are visited.
+targets=()
+cleanup() {
+    rm -rf "$root" ${targets[@]+"${targets[@]}"}
+}
+trap cleanup EXIT
 
 make_project() {
     local dir="$1" helm_major="$2" diff_version="$3" secrets_version="$4"
@@ -55,8 +62,12 @@ check() {
     # here, resolved off PATH exactly as the hook would.
     mise exec -- helm-plugins-sync
 
+    local project_target
+    project_target="$(mise env -s bash | sed -n 's/^export HELM_PLUGINS=//p')"
+    targets+=("$project_target")
+
     echo "=== $dir (helm $(mise exec -- helm version --short)) ==="
-    mise env -s bash | grep HELM_PLUGINS || true
+    echo "HELM_PLUGINS=$project_target"
     mise exec -- helm plugin list
 
     local actual_diff actual_count
