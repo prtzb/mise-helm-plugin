@@ -217,9 +217,10 @@ so parallel runs race).
 - `mise run ci` — lint only, hermetic, fast. CI runs it as a separate job from
   the tests.
 
-`example/3` is runnable but deliberately not in CI: helm-unittest is a real
-third-party dependency whose release cadence could break the build for reasons
-unrelated to this plugin.
+The examples are configuration only — `cd` in with `mise activate` and the
+plugins are active — and deliberately not in CI. `example/3` in particular
+installs helm-unittest, a real third-party dependency whose release cadence
+could break the build for reasons unrelated to this plugin.
 
 ## Still open
 

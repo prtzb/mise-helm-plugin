@@ -62,20 +62,19 @@ deprecation warning as of 3.21) and helm 4 refuses to load the plugin at all.
 4.6.5 dropped the bare `command`, so 4.6.5+ is required on helm 4. Pinning helm
 per project is what makes both work side by side.
 
-`example/3` is the one you can actually *run*. It pins helm-unittest — which
-has no built-in shorthand, so its repo is given inline — next to helm-diff,
-which does have one, and ships a small chart with two tests to run them
-against:
+`example/3` shows the two declaration forms side by side: helm-diff by its
+built-in shorthand, and helm-unittest — which has no shorthand — by naming its
+repo inline. In a shell with `mise activate`, cd in and both are simply there:
 
 ```sh
 cd example/3 && mise install
-helm unittest chart
+helm plugin list
 ```
 
 ```
-Charts:      1 passed, 1 total
-Test Suites: 1 passed, 1 total
-Tests:       2 passed, 2 total
+NAME    	VERSION	DESCRIPTION
+diff    	3.9.0  	Preview helm upgrade changes as a diff
+unittest	1.0.3  	Unit test for helm chart in YAML with ease to keep your chart functional and robust.
 ```
 
 It pins helm-unittest 1.0.3 rather than the latest for the same class of reason

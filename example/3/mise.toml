@@ -1,4 +1,4 @@
-# A plugin that isn't built in, named inline — and a chart to actually run it on.
+# A plugin that isn't built in, named inline.
 #
 # helm-diff uses the shorthand from PLUGIN.tools; helm-unittest is not in that
 # map and doesn't need to be, because the repo is given inline. The two forms
@@ -12,8 +12,8 @@
 #
 # Try it:
 #     cd example/3 && mise install
-#     helm unittest chart        # in a shell with `mise activate`
-#     mise exec -- helm-plugins-sync && mise exec -- helm unittest chart
+#     helm plugin list           # in a shell with `mise activate`
+#     mise exec -- helm-plugins-sync && mise exec -- helm plugin list
 [tools]
 helm = "3"
 "helm-plugin:helm-diff" = "3.9.0"
