@@ -349,6 +349,38 @@ Rewriting it also surfaced a latent bug shellcheck caught: `local sh="$1"
 script="$proj/session.$sh"` reads `$sh` before that same `local` has set it.
 Masked here because both shells rewrite the file each pass, but wrong.
 
+## Done — dropped the jq dependency (2026-09-02)
+
+jq was the one thing users had to install purely for this plugin. Gone, along
+with the `mise ls --current --json` subprocess it existed to parse.
+
+`BackendExecEnv` now exports one `HELM_PLUGINS_SYNC_<tool>` variable per active
+tool, holding `"<tool><TAB><install_path>"`, and `helm-plugins-sync` reads the
+active set out of its own environment. This is sound within both constraints in
+DESIGN.md §3, and noticing that was the whole trick: constraint 1 is about
+same-*key* collisions, and distinct keys merge fine; constraint 2 forbids
+project-dependent values, and an install path is a pure function of
+`(tool, version)` — exactly what mise keys the cache on.
+
+Measured before implementing: three concurrently active tools all arrive
+intact; mise unsets them on leaving a project (checked A -> B -> outside, no
+leakage); a declared-but-uninstalled tool produces no variable, preserving the
+old skip behaviour; and `${!prefix@}` plus `${!var}` work under `set -u` on
+macOS's bash 3.2.
+
+Proved rather than assumed afterwards: the full suite passes with a sabotaged
+`jq` on PATH that exits 127 and shouts — it is never called. And the script runs
+correctly with `PATH=/usr/bin:/bin`, so it needs neither jq nor mise now, just
+bash and coreutils.
+
+Prefix is `HELM_PLUGINS_SYNC_` rather than `MISE_*` (mise's zsh activation
+fingerprints `MISE_*` with `typeset +m`) or `HELM_PLUGIN_*` (helm's own
+namespace for variables it passes to a running plugin).
+
+Known edge, not fixed: tool names are sanitised into variable names with
+`%W -> _`, so `helm-diff` and a hypothetical `helm_diff` would collide and one
+would be lost. Same class as the existing tool-name-is-identity limitation.
+
 ### Next up
 
 Three left, all small: dotglob in the prune loop, a comment noting mise already

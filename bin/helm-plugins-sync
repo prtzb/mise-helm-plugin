@@ -2,10 +2,12 @@
 # Rebuild the directory HELM_PLUGINS points at so it holds exactly the helm
 # plugins active in the current project.
 #
-# Why this is a task rather than something BackendExecEnv does (see DESIGN.md §3):
+# Why this is a script rather than something BackendExecEnv does (DESIGN.md §3):
 # mise does not merge same-key env_vars across tools, and it caches
 # BackendExecEnv output per tool@version — so the hook can neither contribute
-# one directory per tool nor re-run when you cd between projects.
+# one directory per tool nor re-run when you cd between projects. It can hand
+# over one variable per tool, though, which is where the active set below comes
+# from. No external commands beyond coreutils: no mise, no jq.
 #
 # Usage: helm-plugins-sync [target-dir]     (default: $HELM_PLUGINS)
 set -euo pipefail
@@ -27,40 +29,23 @@ EOF
     exit 1
 fi
 
-for required in mise jq; do
-    command -v "$required" >/dev/null || {
-        echo "helm-plugins-sync: $required is required but not on PATH" >&2
-        [ "$required" = jq ] && echo "  add jq = \"latest\" to [tools] in your mise.toml" >&2
-        exit 1
-    }
-done
-
 mkdir -p "$target"
-
-if ! listing="$(mise ls --current --json 2>&1)"; then
-    echo "helm-plugins-sync: 'mise ls --current --json' failed:" >&2
-    echo "$listing" >&2
-    exit 1
-fi
-
-# "<short-tool-name>\t<install_path>" for every active, installed helm-plugin:* tool.
-# Tools listed in mise.toml but not yet installed are skipped rather than
-# reported: that's the ordinary state of a fresh clone before `mise install`.
-if ! active="$(printf '%s' "$listing" | jq -r '
-    to_entries[] as $tool
-    | select($tool.key | startswith("helm-plugin:"))
-    | $tool.value[]
-    | select(.active and .installed)
-    | "\($tool.key | ltrimstr("helm-plugin:"))\t\(.install_path)"
-' 2>&1)"; then
-    echo "helm-plugins-sync: could not parse mise's tool list: $active" >&2
-    exit 1
-fi
 
 wanted=()
 broken=0
 
-while IFS=$'\t' read -r tool install_path; do
+# Every active, installed helm-plugin:* tool exports
+# HELM_PLUGINS_SYNC_<tool>="<tool><TAB><install_path>", set by BackendExecEnv.
+# mise merges env_vars across tools as long as the keys differ — only same-key
+# collisions are last-wins, which is what stops the hook setting HELM_PLUGINS
+# directly (DESIGN.md §3). Reading them here is why this script needs neither
+# `mise ls --current --json` nor jq to parse it.
+#
+# Tools listed in mise.toml but not yet installed get no variable, so they're
+# skipped rather than reported: the ordinary state of a fresh clone before
+# `mise install`.
+for var in ${!HELM_PLUGINS_SYNC_@}; do
+    IFS=$'\t' read -r tool install_path <<<"${!var}"
     [ -n "$tool" ] || continue
 
     # helm names the directory after plugin.yaml's `name` field, which is not
@@ -90,7 +75,7 @@ while IFS=$'\t' read -r tool install_path; do
 
     ln -sfn "$(dirname "$manifest")" "$dest"
     wanted+=("$tool")
-done <<<"$active"
+done
 
 # Prune links for plugins that are no longer active in this project. Only ever
 # removes symlinks — anything else in the directory is left alone and reported.

@@ -92,7 +92,6 @@ on both majors.
   detects the major version and passes `--verify=false` there. helm 3 has no
   such flag and doesn't get one.
 - `git`, which helm's own plugin installer shells out to.
-- `jq`, used by `helm-plugins-sync` to read `mise ls --current --json`.
 - `mise activate` in your shell, so the `enter` hook fires on `cd`. Without it
   the plugins still install, but `$HELM_PLUGINS` won't be rebuilt
   automatically — run `helm-plugins-sync` by hand.

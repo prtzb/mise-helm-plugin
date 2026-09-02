@@ -142,10 +142,22 @@ directory. That's safe precisely where `HELM_PLUGINS` wasn't — `PATH` is the
 one key mise merges, and the value depends only on the plugin's location, so
 caching it per tool@version is harmless.
 
-**Design: assembly outside the hook.** `mise ls --current --json` reports the
-active `helm-plugin:*` tools with their `install_path`s, so a plain script can
-build the directory correctly. The consuming project wires it up with `[env]`
-and `[hooks]` — see `example/1/mise.toml` for the canonical four lines.
+**Design: assembly outside the hook.** The consuming project wires it up with
+`[env]` and `[hooks]` — see `example/1/mise.toml` for the canonical four lines.
+
+The hook still supplies the *input*. Constraint 1 above is specifically about
+key **collisions**; distinct keys merge fine. So `BackendExecEnv` exports one
+`HELM_PLUGINS_SYNC_<tool>` variable per tool, holding
+`"<tool><TAB><install_path>"`, and `helm-plugins-sync` reads the active set
+straight out of its environment. Measured 2026-09-02: with three tools active
+all three variables arrive intact, and mise unsets them on the way out of a
+project, so the set is always exactly what's active. Constraint 2 is satisfied
+too — an install path is a pure function of `(tool, version)`, which is what
+mise keys the cache on, unlike the project-dependent value `HELM_PLUGINS` would
+have needed.
+
+This replaced an earlier design that shelled out to `mise ls --current --json`
+and parsed it with jq, which is why jq used to be a documented requirement.
 
 `bin/helm-plugins-sync` symlinks each active plugin into `$HELM_PLUGINS` (named
 after the tool, so version switches replace in place) and prunes symlinks for
@@ -162,8 +174,10 @@ tools), and keeps generated files out of the repo. It sits beside
 `~/.local/state/mise/` rather than inside it, so we aren't squatting in a
 namespace mise owns.
 
-Costs, honestly: four lines in each consuming `mise.toml` beyond `[tools]`, a
-dependency on `mise activate` for the `enter` hook to fire, and `jq`.
+Costs, honestly: four lines in each consuming `mise.toml` beyond `[tools]`, and
+a dependency on `mise activate` for the `enter` hook to fire. Beyond that
+`helm-plugins-sync` needs nothing but bash and coreutils — verified by running
+it with `PATH=/usr/bin:/bin`, no mise and no jq in sight.
 
 ## Other measured facts
 

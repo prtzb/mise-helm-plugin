@@ -4,9 +4,6 @@ MISE_USE_VERSIONS_HOST = "0"
 [tools]
 actionlint = "latest"
 hk = "latest"
-# helm-plugins-sync needs jq at runtime; the tests exercise it, so CI needs it
-# too rather than relying on the runner image happening to ship it.
-jq = "latest"
 lua = "5.4"
 lua-language-server = "latest"
 pkl = "latest"
