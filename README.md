@@ -32,7 +32,7 @@ backend API cannot set `HELM_PLUGINS` correctly on its own: it doesn't merge
 same-key `env_vars` across tools, and it caches `BackendExecEnv` per
 tool@version so the hook can't react to `cd`. `helm-plugins-sync` does the
 work instead — it symlinks every active `helm-plugin:*` tool into
-`$HELM_PLUGINS` and prunes ones that are no longer active. See PLAN.md §3 for
+`$HELM_PLUGINS` and prunes ones that are no longer active. See DESIGN.md §3 for
 the measurements behind that.
 
 You don't need to install `helm-plugins-sync` or reference it by path: the

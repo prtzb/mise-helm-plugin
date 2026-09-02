@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #MISE description="End-to-end: two projects pinning different versions of the same helm plugin"
 #
-# PLAN.md testing plan: two sibling directories, each pinning a different
+# DESIGN.md §3 testing notes: two sibling directories, each pinning a different
 # version of helm-diff; confirm helm sees the right one in each, and that the
 # project with two plugins sees both.
 set -euo pipefail

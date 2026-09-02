@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #MISE description="Edge cases for helm-plugins-sync: uninstall cleanup, corrupt installs, stray files"
 #
-# PLAN.md milestone 6. There is no BackendUninstall hook in mise, so cleanup of
-# stale links is helm-plugins-sync's job on the next run.
+# See DESIGN.md, "Other measured facts": there is no BackendUninstall hook in
+# mise, so cleanup of stale links is helm-plugins-sync's job on the next run.
 set -euo pipefail
 
 plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

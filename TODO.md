@@ -159,25 +159,26 @@ shellcheck) was applied on 2026-09-02 — see "Done" at the bottom.
 
 ## Docs
 
-- [ ] **Split PLAN.md.** It's two documents in one. §3 — the measured account
-      of why `BackendExecEnv` can't do activation, with the three numbered
-      constraints — is genuinely valuable and the README rightly points at it.
-      The milestone checklist wrapped around it is a completed project tracker
-      that git history already records, and it's drifting: milestones 5 and 7
-      are done but unmarked, and the final open question (whether `--version`
-      works cleanly for all target plugins) is still listed as open despite
-      both supported plugins now being verified.
+- [x] **Split PLAN.md.** Done 2026-09-02. `DESIGN.md` keeps the goal, the
+      non-goals, the hook/module facts, the three numbered architecture
+      sections, and a consolidated "Other measured facts" section that now also
+      holds the `cmd.exec` env finding, the `ctx.options` forwarding, the
+      tool-name-is-identity collision, and the config-trust behaviour. The
+      milestone tracker and the resolved risk list are gone — git history holds
+      them. §3 kept its number, since four files reference it that way; all
+      references repointed (README, `bin/helm-plugins-sync`,
+      `hooks/backend_exec_env.lua`, and both test tasks).
 
-      Suggested: `DESIGN.md` keeps §3 and the measurements (including the new
-      `cmd.exec` env finding); the tracker goes away.
+- [x] **The `mise.toml` snippet duplication** — resolved as far as it usefully
+      can be. `DESIGN.md` now points at `example/1/mise.toml` instead of
+      restating the block, which was the one copy that existed purely to be
+      read. The other seven are load-bearing and should stay: the README's is
+      the first thing a user needs, the three examples *are* the config, the
+      three test tasks have to generate it, and the one in
+      `bin/helm-plugins-sync` is the error message telling you what to add.
+      Deduplicating those would mean indirection for its own sake.
 
-- [ ] **The four-line `mise.toml` snippet is duplicated in six places** —
-      README, PLAN, both examples, three test scripts, plus the error message
-      in `bin/helm-plugins-sync:19-26`. The test scripts have to build it
-      themselves, but the README could point at `example/1/mise.toml` as the
-      single canonical copy rather than restating it.
-
-- [ ] **No LICENSE file** though `metadata.lua:11` declares `license = "MIT"`.
+- [x] **No LICENSE file** though `metadata.lua:11` declares `license = "MIT"`.
 
 - [x] **`homepage` is unverified** — was `https://github.com/staffan/...`,
       but the handle is `prtzb`. Corrected 2026-09-02 once the remote was added,
@@ -186,7 +187,7 @@ shellcheck) was applied on 2026-09-02 — see "Done" at the bottom.
       missing entirely — there was no documented way for a consumer to install
       the plugin itself, only the local `mise plugin link` dev path.
 
-- [ ] **`CLAUDE.md` is a bare title.** The dev/test commands from the README's
+- [x] **`CLAUDE.md` is a bare title.** The dev/test commands from the README's
       Development section are what belong in it.
 
 ## Not problems (recorded so they don't get re-litigated)
@@ -304,7 +305,26 @@ for reasons unrelated to resolution.
   silently getting helm-diff. Not fixable from inside the plugin; documented
   under Known limitations in the README.
 
+## Done — docs (2026-09-02)
+
+`PLAN.md` became `DESIGN.md`: the design reasoning and every measurement kept
+and consolidated, the finished milestone tracker and resolved-risk list
+dropped. §3 kept its number because four files cite it that way. Added
+`LICENSE` (MIT, matching what `metadata.lua` already declared) and filled in
+`CLAUDE.md` with the commands plus the traps that cost time this session —
+unannotated requires linting vacuously, config trust, shared test state, the
+helm 3/4 plugin.yaml divergence, and bash 3.2 on macOS.
+
+The snippet duplication came out as a partial: only `DESIGN.md`'s copy existed
+purely to be read, so it now points at `example/1/mise.toml`. The rest are
+load-bearing and stay.
+
 ### Next up
 
-Nothing below this line is started. Remaining, roughly by value: the PLAN.md
-split, then the small stuff (dotglob, prerelease comment, LICENSE, CLAUDE.md).
+Three left, all small: dotglob in the prune loop, a comment noting mise already
+filters prereleases, and moving the registry out of `metadata.lua` if mise
+supports plugin-local `lib/` modules (unverified).
+
+Still unresolved and not on the list proper: **the Linux half of the CI matrix
+has never run.** Pushing is what settles it. `example/3` is also outside CI by
+choice, so it can rot silently.

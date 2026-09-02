@@ -5,7 +5,7 @@
 local file = require("file")
 
 -- This hook cannot do activation. Two measured constraints rule it out — see
--- PLAN.md §3:
+-- DESIGN.md §3:
 --
 --   1. mise does not merge same-key env_vars across tools. With two
 --      helm-plugin:* tools active, HELM_PLUGINS held only one of them.

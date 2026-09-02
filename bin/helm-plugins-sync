@@ -2,7 +2,7 @@
 # Rebuild the directory HELM_PLUGINS points at so it holds exactly the helm
 # plugins active in the current project.
 #
-# Why this is a task rather than something BackendExecEnv does (see PLAN.md §3):
+# Why this is a task rather than something BackendExecEnv does (see DESIGN.md §3):
 # mise does not merge same-key env_vars across tools, and it caches
 # BackendExecEnv output per tool@version — so the hook can neither contribute
 # one directory per tool nor re-run when you cd between projects.
