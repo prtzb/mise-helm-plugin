@@ -1,25 +1,19 @@
 #!/usr/bin/env bash
-#MISE description="Verify the [hooks] enter entry fires under a real `mise activate` shell"
+#MISE description="Verify the [hooks] enter entry fires on cd under `mise activate`"
 #
 # The other tests invoke helm-plugins-sync directly, which proves the script
-# works but not that it ever runs. This drives a real interactive zsh with
-# `eval "$(mise activate zsh)"` and only cds — everything else must follow.
+# works but not that anything ever runs it. This drives real `mise activate`
+# shells and only cds — everything else has to follow from mise's activation.
 set -euo pipefail
 
 plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 diff_version="${DIFF_VERSION:-3.9.0}"
 secrets_version="${SECRETS_VERSION:-4.6.0}"
 
-command -v zsh >/dev/null || {
-    echo "SKIP: zsh not installed" >&2
-    exit 0
-}
-
 mise plugin link --force helm-plugin "$plugin_dir"
 
 proj="$(mktemp -d)"
-zdot="$(mktemp -d)"
-trap 'rm -rf "$proj" "$zdot" "${target:-}"' EXIT
+trap 'rm -rf "$proj" "${target:-}"' EXIT
 
 cat >"$proj/mise.toml" <<EOF
 [tools]
@@ -35,46 +29,66 @@ enter = "helm-plugins-sync"
 EOF
 
 cd "$proj"
-# MISE_YES in the zshrc answers the prompt inside the session, but the setup
-# steps below run outside it and an untrusted config with [env]/[hooks] won't
-# parse at all.
+# An untrusted config with [env]/[hooks] doesn't parse at all, and the sessions
+# below get a fresh environment, so trust it here rather than relying on the
+# machine having trusted this path before.
 mise trust >/dev/null
 mise install >/dev/null
 target="$(mise env -s bash | sed -n 's/^export HELM_PLUGINS=//p')"
 
-# Start from nothing, so anything present afterwards was made by the hook.
-rm -rf "$target"
-
-# ZDOTDIR keeps the user's own dotfiles out of it: mise activation and nothing else.
-cat >"$zdot/.zshrc" <<'EOF'
-export PATH="$HOME/.local/bin:$PATH"
-export MISE_YES=1
-eval "$(mise activate zsh)"
-EOF
-
-# Only a cd. No explicit helm-plugins-sync call anywhere.
-printf 'cd %s\n' "$proj" >"$zdot/session.zsh"
-
-# `-i` is required — the hook under test only fires in an interactive shell —
-# but it also switches on job control, and job control acts on the *controlling
-# terminal* (/dev/tty), not on stdin. Redirecting stdin and stdout therefore
-# does not keep this shell away from the terminal you launched the test from:
-# it takes the foreground process group and hands it back on exit, which can
-# leave your own shell in the background and drop you out of it when the suite
-# finishes.
+# No interactive shell anywhere below, deliberately. Both shells hook `cd`
+# without needing a prompt — zsh through `add-zsh-hook chpwd`, bash through the
+# `cd` function wrapper mise installs — so `-i` buys no extra fidelity for what
+# this test checks. It does cost something: `-i` turns on job control, and job
+# control acts on the controlling terminal rather than on stdin, so no amount of
+# redirection keeps such a shell away from the terminal running the suite. It
+# takes the foreground process group and can leave the invoking shell in the
+# background. Only `precmd`/`PROMPT_COMMAND` would need interactivity, and `cd`
+# is what this test is about.
 #
-# setsid puts it in a new session with no controlling terminal at all, so there
-# is nothing for it to grab; +m disables job control on top of that. perl rather
-# than setsid(1), which macOS doesn't ship. Verified that the rc still runs and
-# chpwd still fires under both.
-ZDOTDIR="$zdot" perl -MPOSIX=setsid -e 'setsid(); exec @ARGV or die' \
-    -- zsh -i +m <"$zdot/session.zsh" >/dev/null 2>&1 || true
+# Run under both shells: bash is always present, so this never skips entirely,
+# and zsh is what most people using this are actually sitting in.
+run_session() {
+    local sh="$1"
+    local script="$proj/session.$sh"
+    {
+        # Single-quoted on purpose: these must reach the session as literal text
+        # and expand there, not here.
+        # shellcheck disable=SC2016
+        echo 'export PATH="$HOME/.local/bin:$PATH"'
+        echo 'export MISE_YES=1'
+        echo "eval \"\$(mise activate $sh)\""
+        # Only a cd. No helm-plugins-sync call anywhere.
+        echo "cd $proj"
+    } >"$script"
 
-links="$(find "$target" -mindepth 1 -maxdepth 1 2>/dev/null | sed 's|.*/||' | sort | tr '\n' ' ' | sed 's/ $//')"
-if [ "$links" = "helm-diff helm-secrets" ]; then
-    echo "PASS: cd alone fired the enter hook and built '$links'"
-else
-    echo "FAIL: expected 'helm-diff helm-secrets' after cd, got '$links'" >&2
-    echo "  the [hooks] enter entry did not run — check that mise activate is in effect" >&2
-    exit 1
-fi
+    # No startup files: the user's own dotfiles must not decide the outcome.
+    case "$sh" in
+    zsh) zsh -f "$script" ;;
+    bash) bash --noprofile --norc "$script" ;;
+    esac
+}
+
+fail=0
+
+for sh in bash zsh; do
+    if ! command -v "$sh" >/dev/null; then
+        echo "SKIP [$sh]: not installed"
+        continue
+    fi
+
+    # Start from nothing, so anything present afterwards was made by the hook.
+    rm -rf "$target"
+    run_session "$sh" >/dev/null 2>&1 || true
+
+    links="$(find "$target" -mindepth 1 -maxdepth 1 2>/dev/null | sed 's|.*/||' | sort | tr '\n' ' ' | sed 's/ $//')"
+    if [ "$links" = "helm-diff helm-secrets" ]; then
+        echo "PASS [$sh]: cd alone fired the enter hook and built '$links'"
+    else
+        echo "FAIL [$sh]: expected 'helm-diff helm-secrets' after cd, got '${links:-nothing}'" >&2
+        echo "  the [hooks] enter entry did not run — check that mise activate is in effect" >&2
+        fail=1
+    fi
+done
+
+exit "$fail"

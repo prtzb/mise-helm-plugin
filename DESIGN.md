@@ -200,9 +200,20 @@ so parallel runs race).
 - `test-sync-hardening` — uninstall cleanup, corrupt installs, stray files and
   directories. Runs against a scratch `MISE_DATA_DIR` so the corruption case
   can't touch real installs.
-- `test-activate-hook` — drives a real `eval "$(mise activate zsh)"` session
-  and checks that `cd` alone rebuilds the directory. Negative control checked:
-  with activation removed, nothing is created, so it can't pass vacuously.
+- `test-activate-hook` — runs `eval "$(mise activate <sh>)"` under both bash and
+  zsh and checks that `cd` alone rebuilds the directory. Negative control
+  checked: with activation removed, nothing is created, so it can't pass
+  vacuously.
+
+  No interactive shell is involved. Both shells hook `cd` without needing a
+  prompt — zsh through `add-zsh-hook chpwd`, bash through the `cd` function
+  wrapper mise installs — so only `precmd`/`PROMPT_COMMAND` would require `-i`,
+  and `cd` is what this test is about. That matters beyond tidiness: `zsh -i`
+  turns on job control, which acts on the controlling terminal rather than on
+  stdin, so no redirection keeps such a shell away from the terminal running
+  the suite. It takes the foreground process group and can leave the invoking
+  shell in the background. Running both shells also means the test never skips
+  entirely, since bash is always present.
 - `mise run ci` — lint only, hermetic, fast. CI runs it as a separate job from
   the tests.
 

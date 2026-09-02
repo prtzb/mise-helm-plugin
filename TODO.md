@@ -329,17 +329,25 @@ never kept it away from the terminal the suite was launched from. It takes the
 foreground process group and returns it on exit, which can leave the invoking
 shell in the background.
 
-Fixed by running that shell via `perl -MPOSIX=setsid` in a new session, where
-it has no controlling terminal to take, plus `+m` to disable job control
-outright. perl rather than `setsid(1)`, which macOS doesn't ship. `-i` has to
-stay: the hook under test only fires in an interactive shell.
+First fixed by isolating that shell with `perl -MPOSIX=setsid` and `+m`. That
+worked, but it was the wrong fix — prompted by "why is an interactive shell
+needed at all?", which turned out to have the answer "it isn't". Both shells
+hook `cd` without a prompt: zsh through `add-zsh-hook chpwd`, bash through the
+`cd` function wrapper mise installs. Only `precmd`/`PROMPT_COMMAND` needs
+interactivity, and `cd` is the whole subject of the test. Verified both
+non-interactively.
 
-Honest caveat: not reproduced directly. Two attempts to synthesise a pty both
-hung — itself a sign that `zsh -i` sharing a controlling terminal is fragile,
-but not a measurement of the reported symptom. The fix is justified by
-construction (a new session has no controlling terminal to touch) rather than
-by a before/after reproduction. Verified that the rc still runs, `chpwd` still
-fires, the test still passes, and the negative control still fails.
+So `-i` is gone, and with it the setsid workaround, the `+m`, the ZDOTDIR temp
+dir, and any contact with the terminal at all. The test now runs the scenario
+under **both** bash and zsh with no startup files (`zsh -f`,
+`bash --noprofile --norc`), which also closes a gap nobody had noticed: it used
+to `exit 0` when zsh was missing, so on a Linux runner without zsh it would
+have skipped silently and reported success. bash is always present, so it can
+no longer skip entirely. Negative control re-checked for both shells.
+
+Rewriting it also surfaced a latent bug shellcheck caught: `local sh="$1"
+script="$proj/session.$sh"` reads `$sh` before that same `local` has set it.
+Masked here because both shells rewrite the file each pass, but wrong.
 
 ### Next up
 

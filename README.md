@@ -142,8 +142,10 @@ mise install helm-plugin:helm-diff@3.9.0
 - `mise run test-sync-hardening` — uninstall cleanup, corrupt installs, stray
   files and directories in the managed directory. Runs against a scratch
   `MISE_DATA_DIR`, so the corruption case can't touch your real installs.
-- `mise run test-activate-hook` — drives a real `mise activate` zsh session and
-  checks that `cd` alone rebuilds the directory (skipped if zsh is absent)
+- `mise run test-activate-hook` — runs `mise activate` under both bash and zsh
+  and checks that `cd` alone rebuilds the directory. No interactive shell is
+  involved: both shells hook `cd` without needing a prompt, so the test never
+  touches the terminal it was launched from.
 
 `helm-plugins-sync` exits non-zero if anything needed attention — a plugin
 installed without a readable `plugin.yaml`, or a non-symlink sitting in the
