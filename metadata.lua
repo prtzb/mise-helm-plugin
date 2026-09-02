@@ -6,8 +6,8 @@ PLUGIN = { -- luacheck: ignore
     name = "helm-plugin",
     version = "0.1.0",
     description = "A mise backend plugin for installing helm plugins (helm-diff, helm-secrets, ...)",
-    author = "staffan",
-    homepage = "https://github.com/staffan/mise-helm-plugin",
+    author = "Staffan Linnaeus",
+    homepage = "https://github.com/prtzb/mise-helm-plugin",
     license = "MIT",
     notes = {
         "Requires `helm` on PATH before any helm-plugin: tool is installed",

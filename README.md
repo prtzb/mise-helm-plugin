@@ -4,6 +4,15 @@ A [mise](https://mise.jdx.dev) backend plugin that installs helm plugins, so
 they can be declared and pinned in `mise.toml` like any other tool instead of
 being installed by a `postinstall` hook.
 
+## Install
+
+```sh
+mise plugin install helm-plugin https://github.com/prtzb/mise-helm-plugin
+```
+
+Backend plugins aren't in mise's shorthand registry, so the git URL is
+required — `mise plugin install helm-plugin` on its own won't find it.
+
 ## Usage
 
 ```toml

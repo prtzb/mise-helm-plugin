@@ -191,10 +191,12 @@ shellcheck) was applied on 2026-09-02 — see "Done" at the bottom.
 
 - [ ] **No LICENSE file** though `metadata.lua:11` declares `license = "MIT"`.
 
-- [ ] **`homepage` is unverified** — `metadata.lua:10` says
-      `https://github.com/staffan/mise-helm-plugin`, but the repo has no git
-      remote configured, so the username is a guess. Confirm before anyone
-      reads it as real.
+- [x] **`homepage` is unverified** — was `https://github.com/staffan/...`,
+      but the handle is `prtzb`. Corrected 2026-09-02 once the remote was added,
+      along with `author` ("staffan" -> "Staffan Linnaeus", matching the git
+      identity) and a new README "Install" section, which the repo had been
+      missing entirely — there was no documented way for a consumer to install
+      the plugin itself, only the local `mise plugin link` dev path.
 
 - [ ] **`CLAUDE.md` is a bare title.** The dev/test commands from the README's
       Development section are what belong in it.
