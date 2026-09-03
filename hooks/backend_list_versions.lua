@@ -23,6 +23,12 @@ local function normalize_tag(name)
     local version = name:gsub("^v", "")
 
     -- Ignore tags that aren't recognisable versions (e.g. "latest", "release-2020").
+    --
+    -- This deliberately lets prereleases through: mise filters them itself, so
+    -- tightening the pattern to exclude "-rc.N" would only duplicate that.
+    -- Measured 2026-09-01 — both built-in repos publish rc tags, yet
+    -- `mise ls-remote helm-plugin:helm-secrets` lists 77 versions with none of
+    -- them, and `helm-plugin:helm-secrets@4.7` resolves to 4.7.7.
     if not version:match("^%d+%.%d+") then
         return nil
     end

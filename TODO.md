@@ -64,7 +64,7 @@ shellcheck) was applied on 2026-09-02 — see "Done" at the bottom.
         and installs behind a proxy would have failed mysteriously.
       - Record this in the design doc alongside the other measurements.
 
-- [ ] **Prereleases are already filtered by mise** — no action needed beyond a
+- [x] **Prereleases are already filtered by mise** — no action needed beyond a
       comment. Both supported repos have `-rc.N` tags and the
       `^%d+%.%d+` filter in `hooks/backend_list_versions.lua:23` lets them
       through, but mise drops them itself: `ls-remote helm-plugin:helm-secrets`
@@ -455,11 +455,19 @@ leading dot away: without it the expected order would differ between macOS and
 the Linux runner, which is exactly the class of divergence the matrix exists to
 catch.
 
+## Done — prerelease filtering is mise's job (2026-09-03)
+
+A comment in `backend_list_versions.lua` recording that `^%d+%.%d+` lets `-rc.N`
+tags through on purpose. mise drops them itself (measured 2026-09-01:
+`ls-remote helm-plugin:helm-secrets` lists 77 versions with no rc among them,
+and `@4.7` resolves to 4.7.7), so tightening the pattern would only duplicate
+that. Cited in place, so the next person to notice the gap finds the answer
+instead of the bug.
+
 ### Next up
 
-Two left, both small: a comment noting mise already filters prereleases, and
-moving the registry out of `metadata.lua` if mise supports plugin-local `lib/`
-modules (unverified).
+One left: moving the registry out of `metadata.lua`, if mise supports
+plugin-local `lib/` modules (unverified).
 
 Still unresolved and not on the list proper: **the Linux half of the CI matrix
 has never run.** Pushing is what settles it. `example/3` is also outside CI by
