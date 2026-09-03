@@ -39,7 +39,7 @@ shellcheck) was applied on 2026-09-02 — see "Done" at the bottom.
 - [x] **Add the matching test case** to `mise-tasks/test-sync-hardening`:
       `mkdir "$target/helm-diff"` → expect exit 1 and the directory untouched.
 
-- [ ] **Dotfiles are never pruned or reported** — `bin/helm-plugins-sync:86`.
+- [x] **Dotfiles are never pruned or reported** — `bin/helm-plugins-sync:86`.
       `"$target"/*` doesn't match hidden entries, so a stray `.foo` escapes the
       accounting entirely. `shopt -s nullglob dotglob` at the top covers this
       and also makes the `[ -L ] || [ -e ]` literal-glob guard unnecessary.
@@ -381,11 +381,85 @@ Known edge, not fixed: tool names are sanitised into variable names with
 `%W -> _`, so `helm-diff` and a hypothetical `helm_diff` would collide and one
 would be lost. Same class as the existing tool-name-is-identity limitation.
 
+## Done — dotfiles in the prune loop (2026-09-03)
+
+`shopt -s nullglob dotglob` at the top of `helm-plugins-sync`. Without dotglob
+the prune loop never saw hidden entries, so a stray `.foo` was neither removed
+nor reported — it escaped the accounting entirely. nullglob also retires the
+`[ -L ] || [ -e ]` guard, which existed only to skip the literal `$target/*` in
+an empty directory.
+
+`test-sync-hardening` now covers both halves of that accounting: a `.keep-me`
+file must be reported and preserved, a `.stale-link` symlink must be pruned.
+Negative control run with dotglob removed — both assertions fail (exit 0 rather
+than 1, and `.stale-link` survives into three later cases as well).
+
+The check helper sorts under `LC_ALL=C` now, because a UTF-8 locale collates the
+leading dot away: without it the expected order would differ between macOS and
+the Linux runner, which is exactly the class of divergence the matrix exists to
+catch.
+
+## Done — prerelease filtering is mise's job (2026-09-03)
+
+A comment in `backend_list_versions.lua` recording that `^%d+%.%d+` lets `-rc.N`
+tags through on purpose. mise drops them itself (measured 2026-09-01:
+`ls-remote helm-plugin:helm-secrets` lists 77 versions with no rc among them,
+and `@4.7` resolves to 4.7.7), so tightening the pattern would only duplicate
+that. Cited in place, so the next person to notice the gap finds the answer
+instead of the bug.
+
+## Done — registry moved to lib/ (2026-09-03)
+
+Verified the premise before writing anything: a throwaway copy of the plugin,
+printing `package.path` from a hook, showed mise puts three directories on it —
+the plugin root, `hooks/`, and `lib/`. So `require("registry")` loads
+`lib/registry.lua`, and `metadata.lua` is the manifest and nothing else.
+`PLUGIN.ResolveRepo`/`ResolveRepoUrl` became
+`registry.resolve_repo`/`resolve_repo_url`.
+
+The stub trap in CLAUDE.md recurs here in a different shape. luals *does*
+resolve the require unaided — it matches `?.lua` against any workspace
+subdirectory, proved by the `different-requires` warning when a probe required
+the same file two ways. But it reported nothing for
+`registry.definitely_not_a_real_function` until the module declared
+`@class registry`. A `runtime.path` entry for `lib/?.lua` was tried and
+reverted: it changed neither result, so it would have been config that does
+nothing.
+
+Exercised end to end rather than by inspection. `test-activation`'s inline-`repo`
+project and both resolution error-message assertions run through the moved code,
+and `test-sync-hardening` runs against a fresh `MISE_DATA_DIR`, so `BackendInstall`
+really does install through it.
+
 ### Next up
 
-Three left, all small: dotglob in the prune loop, a comment noting mise already
-filters prereleases, and moving the registry out of `metadata.lua` if mise
-supports plugin-local `lib/` modules (unverified).
+Nothing left on the list. Still unresolved and not on it proper: **the Linux
+half of the CI matrix has never run** — the remote exists but has no commits
+yet, so pushing is what settles it. `example/3` is outside CI by choice, so it
+can rot silently.
+## Done — dotfiles in the prune loop (2026-09-03)
+
+`shopt -s nullglob dotglob` at the top of `helm-plugins-sync`. Without dotglob
+the prune loop never saw hidden entries, so a stray `.foo` was neither removed
+nor reported — it escaped the accounting entirely. nullglob also retires the
+`[ -L ] || [ -e ]` guard, which existed only to skip the literal `$target/*` in
+an empty directory.
+
+`test-sync-hardening` now covers both halves of that accounting: a `.keep-me`
+file must be reported and preserved, a `.stale-link` symlink must be pruned.
+Negative control run with dotglob removed — both assertions fail (exit 0 rather
+than 1, and `.stale-link` survives into three later cases as well).
+
+The check helper sorts under `LC_ALL=C` now, because a UTF-8 locale collates the
+leading dot away: without it the expected order would differ between macOS and
+the Linux runner, which is exactly the class of divergence the matrix exists to
+catch.
+
+### Next up
+
+Two left, both small: a comment noting mise already filters prereleases, and
+moving the registry out of `metadata.lua` if mise supports plugin-local `lib/`
+modules (unverified).
 
 Still unresolved and not on the list proper: **the Linux half of the CI matrix
 has never run.** Pushing is what settles it. `example/3` is also outside CI by

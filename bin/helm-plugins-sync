@@ -12,6 +12,13 @@
 # Usage: helm-plugins-sync [target-dir]     (default: $HELM_PLUGINS)
 set -euo pipefail
 
+# The prune loop below is the only glob in this script, and it has to see
+# everything in the target directory: without dotglob a stray `.foo` is neither
+# pruned nor reported, so it escapes the accounting entirely. nullglob makes an
+# empty directory yield no iterations at all, rather than one pass over the
+# literal string `$target/*`.
+shopt -s nullglob dotglob
+
 target="${1:-${HELM_PLUGINS:-}}"
 
 if [ -z "$target" ]; then
@@ -80,7 +87,6 @@ done
 # Prune links for plugins that are no longer active in this project. Only ever
 # removes symlinks — anything else in the directory is left alone and reported.
 for entry in "$target"/*; do
-    [ -L "$entry" ] || [ -e "$entry" ] || continue
     name="$(basename "$entry")"
 
     keep=false

@@ -57,7 +57,9 @@ check() {
     local actual_exit=0 actual_links
 
     mise exec -- helm-plugins-sync || actual_exit=$?
-    actual_links="$(find "$target" -mindepth 1 -maxdepth 1 2>/dev/null | sed 's|.*/||' | sort | tr '\n' ' ' | sed 's/ $//')"
+    # LC_ALL=C so the expected order is the same on macOS and Linux: a UTF-8
+    # locale collates punctuation away, putting ".hidden" after "helm-diff".
+    actual_links="$(find "$target" -mindepth 1 -maxdepth 1 2>/dev/null | sed 's|.*/||' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
     if [ "$actual_exit" != "$expected_exit" ]; then
         echo "FAIL [$label]: expected exit $expected_exit, got $actual_exit" >&2
@@ -85,6 +87,14 @@ echo "==> a stray non-symlink is preserved, not deleted"
 touch "$target/keep-me"
 check "stray-file" 1 "helm-diff helm-secrets keep-me"
 rm -f "$target/keep-me"
+
+echo "==> a stray dotfile is reported, and a stray dot-symlink is pruned"
+# Without `shopt -s dotglob`, "$target"/* skips hidden entries and both of these
+# pass through the prune loop unseen: no report, no removal.
+touch "$target/.keep-me"
+ln -s /nonexistent "$target/.stale-link"
+check "stray-dotfile" 1 ".keep-me helm-diff helm-secrets"
+rm -f "$target/.keep-me"
 
 echo "==> a stray directory is refused, not linked into"
 # Replace the good link with a real directory, which `ln -sfn` would otherwise
