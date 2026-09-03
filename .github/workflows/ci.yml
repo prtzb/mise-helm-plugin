@@ -20,10 +20,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Separate from lint: these install real helm plugins over the network, so
-  # they're slower and can fail for reasons lint can't. fail-fast is off so a
-  # failure on one OS doesn't hide the result on the other — the point of
-  # running both is catching GNU/BSD divergence.
+  # Separate from lint: these install real helm plugins over the network.
+  # fail-fast off, since the point of both OSes is catching GNU/BSD divergence
+  # and one failure shouldn't hide the other's result.
   test:
     strategy:
       fail-fast: false

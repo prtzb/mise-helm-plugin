@@ -18,9 +18,8 @@ run = "stylua metadata.lua hooks/"
 
 [tasks.lint]
 description = "Lint Lua scripts and GitHub Actions using hk"
-# --all, not the default: plain `hk check` only looks at git-modified files, so
-# on CI's clean checkout it finds nothing and passes vacuously. The pre-commit
-# hook in hk.pkl still runs against modified files only, which is right there.
+# --all, not the default: plain `hk check` looks only at git-modified files, so
+# on CI's clean checkout it would pass vacuously.
 run = "hk check --all"
 
 [tasks.lint-fix]
@@ -29,10 +28,8 @@ run = "hk fix --all"
 
 [tasks.test]
 description = "Run all end-to-end tests (needs network; installs real helm plugins)"
-# Sequential rather than `depends`, which would run them in parallel: all three
-# call `mise plugin link --force helm-plugin` against the same global path, and
-# two of them install into the shared data dir. Racing on that is asking for
-# intermittent failures no one can reproduce.
+# Sequential rather than `depends`, which runs them in parallel: all three link
+# the plugin at the same global path, and two share a data dir.
 run = [
     "mise run test-activation",
     "mise run test-sync-hardening",
@@ -41,8 +38,6 @@ run = [
 
 [tasks.ci]
 description = "Run the fast, hermetic checks"
-# Deliberately lint-only, so it stays quick to run locally and needs no network.
-# The end-to-end tests are a separate `test` job in .github/workflows/ci.yml —
-# they install real helm plugins over the network, which is worth doing on CI
-# but not on every local invocation.
+# Lint-only, so it stays quick and needs no network. The end-to-end tests are a
+# separate job in .github/workflows/ci.yml.
 depends = ["lint"]

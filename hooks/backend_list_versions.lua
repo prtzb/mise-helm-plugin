@@ -24,12 +24,8 @@ local function normalize_tag(name)
     local version = name:gsub("^v", "")
 
     -- Ignore tags that aren't recognisable versions (e.g. "latest", "release-2020").
-    --
-    -- This deliberately lets prereleases through: mise filters them itself, so
-    -- tightening the pattern to exclude "-rc.N" would only duplicate that.
-    -- Measured 2026-09-01 — both built-in repos publish rc tags, yet
-    -- `mise ls-remote helm-plugin:helm-secrets` lists 77 versions with none of
-    -- them, and `helm-plugin:helm-secrets@4.7` resolves to 4.7.7.
+    -- Prereleases pass through on purpose: mise filters them itself, so
+    -- excluding "-rc.N" here would only duplicate that (DESIGN.md §2).
     if not version:match("^%d+%.%d+") then
         return nil
     end
@@ -44,8 +40,8 @@ local function github_headers()
         ["User-Agent"] = "mise-helm-plugin",
     }
 
-    -- Unauthenticated GitHub API allows 60 req/hr, which `mise ls-remote` can
-    -- burn through quickly. Use a token when one is present.
+    -- The unauthenticated API allows 60 req/hr, which `mise ls-remote` burns
+    -- through quickly.
     local token = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_API_TOKEN")
     if token and token ~= "" then
         headers["Authorization"] = "Bearer " .. token
@@ -66,9 +62,9 @@ function PLUGIN:BackendListVersions(ctx)
     for page = 1, MAX_PAGES do
         local url = string.format("https://api.github.com/repos/%s/tags?per_page=%d&page=%d", repo, PER_PAGE, page)
 
-        -- try_get signals failure as (nil, err), so `err` alone ought to be
-        -- enough — but checking `resp` too keeps a hypothetical (nil, nil) from
-        -- surfacing as an "index a nil value" traceback instead of this message.
+        -- try_get signals failure as (nil, err), so `err` alone ought to do —
+        -- but checking `resp` keeps a (nil, nil) from surfacing as an "index a
+        -- nil value" traceback instead of this message.
         local resp, err = http.try_get({ url = url, headers = headers })
         if err or not resp then
             error(string.format("failed to fetch tags for %s from %s: %s", tool, repo, err or "no response"))

@@ -29,31 +29,23 @@ enter = "helm-plugins-sync"
 EOF
 
 cd "$proj"
-# An untrusted config with [env]/[hooks] doesn't parse at all, and the sessions
-# below get a fresh environment, so trust it here rather than relying on the
-# machine having trusted this path before.
+# An untrusted config with [env]/[hooks] doesn't parse at all.
 mise trust >/dev/null
 mise install >/dev/null
 target="$(mise env -s bash | sed -n 's/^export HELM_PLUGINS=//p')"
 
-# No interactive shell anywhere below, deliberately. Both shells hook `cd`
-# without needing a prompt — zsh through `add-zsh-hook chpwd`, bash through the
-# `cd` function wrapper mise installs — so `-i` buys no extra fidelity for what
-# this test checks. It does cost something: `-i` turns on job control, and job
-# control acts on the controlling terminal rather than on stdin, so no amount of
-# redirection keeps such a shell away from the terminal running the suite. It
-# takes the foreground process group and can leave the invoking shell in the
-# background. Only `precmd`/`PROMPT_COMMAND` would need interactivity, and `cd`
-# is what this test is about.
+# Non-interactive on purpose. Both shells hook `cd` without a prompt (zsh via
+# add-zsh-hook chpwd, bash via mise's `cd` wrapper), so `-i` adds no fidelity —
+# and it would turn on job control, which acts on the controlling terminal no
+# matter how stdin is redirected, stealing the foreground process group from
+# whatever launched the suite.
 #
-# Run under both shells: bash is always present, so this never skips entirely,
-# and zsh is what most people using this are actually sitting in.
+# Both shells, so the test can never skip entirely: bash is always present.
 run_session() {
     local sh="$1"
     local script="$proj/session.$sh"
     {
-        # Single-quoted on purpose: these must reach the session as literal text
-        # and expand there, not here.
+        # Single-quoted: these expand in the session, not here.
         # shellcheck disable=SC2016
         echo 'export PATH="$HOME/.local/bin:$PATH"'
         echo 'export MISE_YES=1'
@@ -62,7 +54,7 @@ run_session() {
         echo "cd $proj"
     } >"$script"
 
-    # No startup files: the user's own dotfiles must not decide the outcome.
+    # No startup files: the user's dotfiles must not decide the outcome.
     case "$sh" in
     zsh) zsh -f "$script" ;;
     bash) bash --noprofile --norc "$script" ;;

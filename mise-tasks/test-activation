@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 #MISE description="End-to-end: two projects pinning different versions of the same helm plugin"
 #
-# DESIGN.md §3 testing notes: two sibling directories, each pinning a different
-# version of helm-diff; confirm helm sees the right one in each, and that the
-# project with two plugins sees both.
+# Sibling projects pinning different versions of helm-diff; each must see its
+# own, and the project with two plugins must see both.
 set -euo pipefail
 
 plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -16,9 +15,8 @@ command -v helm >/dev/null || {
 mise plugin link --force helm-plugin "$plugin_dir"
 
 root="$(mktemp -d)"
-# Each project's HELM_PLUGINS lives under XDG state, keyed on a hash of its
-# config_root — outside $root, so it needs cleaning up separately or every run
-# leaves another orphan behind. Collected as the projects are visited.
+# Each project's HELM_PLUGINS lives under XDG state, outside $root, so it needs
+# cleaning up separately or every run leaves an orphan behind.
 targets=()
 cleanup() {
     rm -rf "$root" ${targets[@]+"${targets[@]}"}
@@ -30,19 +28,15 @@ make_project() {
     mkdir -p "$dir"
     {
         echo '[tools]'
-        # Pin helm explicitly so the test covers both majors rather than
-        # whatever happens to be on PATH. helm 4 needs --verify=false at install
-        # time, which BackendInstall detects; helm-secrets < 4.6.5 won't load on
-        # helm 4 at all, so the versions differ per project by necessity.
+        # Pinned, not whatever is on PATH: the majors behave differently, and
+        # helm-secrets < 4.6.5 won't load on helm 4 at all.
         echo "helm = \"$helm_major\""
         if [ "$diff_style" = inline ]; then
-            # "diff-inline" is deliberately absent from PLUGIN.tools, so the repo
-            # can only come from the inline option that mise forwards to the
-            # hooks as ctx.options. helm still reports the plugin as "diff": the
-            # name comes from plugin.yaml, not from the mise tool name. Aimed at
-            # helm-diff rather than some third plugin on purpose — this is a test
-            # of resolution, and a second real dependency would only add ways for
-            # it to fail for unrelated reasons.
+            # "diff-inline" is absent from the registry, so the repo can only
+            # come from the inline option. It still points at helm-diff: this
+            # tests resolution, and a second real dependency would only add ways
+            # to fail for unrelated reasons. helm reports it as "diff", since the
+            # name comes from plugin.yaml rather than the mise tool name.
             echo "\"helm-plugin:diff-inline\" = { version = \"$diff_version\", repo = \"databus23/helm-diff\" }"
         else
             echo "\"helm-plugin:helm-diff\" = \"$diff_version\""
@@ -57,15 +51,13 @@ make_project() {
         echo 'enter = "helm-plugins-sync"'
     } >"$dir/mise.toml"
 
-    # Explicit, not incidental: an untrusted config with [env]/[hooks] fails to
-    # parse at all, so without this the test depends on the machine happening to
-    # have trusted this path before. A clean CI runner never has.
+    # An untrusted config with [env]/[hooks] doesn't parse at all, and trust is
+    # recorded per file content, so trust every config this test writes.
     mise trust "$dir/mise.toml" >/dev/null
 }
 
 # a: helm 3, one plugin.  b: helm 4, two plugins, incl. a helm-4-capable secrets.
-# c: helm 3, one plugin named only by an inline repo rather than a built-in
-#    shorthand. a and b keep covering PLUGIN.tools.
+# c: helm 3, one plugin named by an inline repo instead of a shorthand.
 make_project "$root/a" 3 3.9.0 none
 make_project "$root/b" 4 3.10.0 4.7.7
 make_project "$root/c" 3 3.9.0 none inline
@@ -77,8 +69,8 @@ check() {
 
     cd "$dir"
     mise install >/dev/null
-    # The `enter` hook fires on cd in an activated shell; invoke it directly
-    # here, resolved off PATH exactly as the hook would.
+    # What the `enter` hook would run on cd, resolved off PATH the same way.
+    # test-activate-hook covers the hook firing; this covers the result.
     mise exec -- helm-plugins-sync
 
     local project_target
@@ -104,24 +96,22 @@ check() {
     echo
 }
 
-# Visit a, then b, then a again — the revisit is what catches stale state
-# leaking between projects.
+# The revisit to a is what catches state leaking between projects. c expects the
+# same as a, reached entirely through the inline repo option.
 check "$root/a" 3.9.0 1
 check "$root/b" 3.10.0 2
 check "$root/a" 3.9.0 1
-# Same expectations as a, reached entirely through the inline repo option.
 check "$root/c" 3.9.0 1
 
-# Resolution failures should say what to do about them, since an unknown plugin
-# name is now a normal thing to hit rather than a hard wall.
+# An unknown plugin name is a normal thing to hit, so the error has to say what
+# to do about it.
 # $1=label  $2=tool name  $3=[tools] entry  $4=expected substring
 check_error() {
     local label="$1" tool="$2" entry="$3" expected="$4" out
     mkdir -p "$root/err"
     printf '[tools]\n%s\n' "$entry" >"$root/err/mise.toml"
-    # Re-trust on every rewrite: trust is recorded per file content, and an
-    # untrusted config is skipped rather than parsed — which would make these
-    # assertions pass without the inline options ever reaching the hook.
+    # Re-trust after each rewrite, or the config is skipped rather than parsed
+    # and these assertions pass without the options reaching the hook.
     mise trust "$root/err/mise.toml" >/dev/null
     cd "$root/err"
 

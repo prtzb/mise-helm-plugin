@@ -16,11 +16,9 @@ command -v helm >/dev/null || {
 
 root="$(mktemp -d)"
 
-# The corruption case below mutates an install in place. Point MISE_DATA_DIR at
-# a scratch directory first, so it can only ever damage this test's own copy —
-# a kill -9 mid-run used to leave the user's real ~/.local/share/mise install of
-# helm-secrets broken. The cost is a fresh install per run; downloads still come
-# from the shared MISE_CACHE_DIR, so it's re-extraction rather than re-download.
+# The corruption case mutates an install in place, so point MISE_DATA_DIR at a
+# scratch directory: even a kill -9 mid-run can only damage this test's copy.
+# Costs a fresh extract per run; downloads still come from MISE_CACHE_DIR.
 export MISE_DATA_DIR="$root/mise-data"
 
 cleanup() {
@@ -41,8 +39,7 @@ helm = "3"
 HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"
 EOF
 
-# An untrusted config with [env] fails to parse, so trust it rather than relying
-# on this path having been trusted by an earlier run. A clean CI runner hasn't.
+# An untrusted config with [env] doesn't parse at all.
 mise trust >/dev/null
 
 mise install >/dev/null
@@ -57,8 +54,8 @@ check() {
     local actual_exit=0 actual_links
 
     mise exec -- helm-plugins-sync || actual_exit=$?
-    # LC_ALL=C so the expected order is the same on macOS and Linux: a UTF-8
-    # locale collates punctuation away, putting ".hidden" after "helm-diff".
+    # LC_ALL=C so dotfiles sort the same on macOS and Linux: a UTF-8 locale
+    # collates the leading dot away.
     actual_links="$(find "$target" -mindepth 1 -maxdepth 1 2>/dev/null | sed 's|.*/||' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 
     if [ "$actual_exit" != "$expected_exit" ]; then
@@ -89,16 +86,14 @@ check "stray-file" 1 "helm-diff helm-secrets keep-me"
 rm -f "$target/keep-me"
 
 echo "==> a stray dotfile is reported, and a stray dot-symlink is pruned"
-# Without `shopt -s dotglob`, "$target"/* skips hidden entries and both of these
-# pass through the prune loop unseen: no report, no removal.
+# Without dotglob both of these pass through the prune loop unseen.
 touch "$target/.keep-me"
 ln -s /nonexistent "$target/.stale-link"
 check "stray-dotfile" 1 ".keep-me helm-diff helm-secrets"
 rm -f "$target/.keep-me"
 
 echo "==> a stray directory is refused, not linked into"
-# Replace the good link with a real directory, which `ln -sfn` would otherwise
-# link *into* rather than replace.
+# `ln -sfn` would link *into* a real directory rather than replace it.
 rm -f "$target/helm-diff"
 mkdir "$target/helm-diff"
 check "stray-dir" 1 "helm-diff helm-secrets"
@@ -111,7 +106,7 @@ rm -rf "$target/helm-diff"
 echo "==> dropping a plugin from mise.toml prunes its link"
 # Not `sed -i ''` — the empty-suffix form is BSD-only and fails on Linux/CI.
 grep -v helm-secrets mise.toml >mise.toml.next && mv mise.toml.next mise.toml
-mise trust >/dev/null # trust is per content, so re-trust after the rewrite
+mise trust >/dev/null # trust is per content, so a rewrite invalidates it
 check "pruned" 0 "helm-diff"
 
 if [ "$fail" -eq 0 ]; then

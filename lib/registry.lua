@@ -1,32 +1,25 @@
--- Which GitHub repo a helm plugin name refers to, and how a project can say so
--- itself. Split out of metadata.lua so that file stays what its name promises:
--- the plugin's own manifest.
---
--- mise puts <plugin>/lib on package.path alongside the plugin root and hooks/
--- (measured 2026-09-03), so this is `require("registry")` from a hook.
+-- Which GitHub repo a helm plugin name refers to. mise puts <plugin>/lib on
+-- package.path, so hooks reach this as `require("registry")`.
 
 --- @class registry
 local M = {}
 
---- Built-in shorthands: short name -> GitHub repo. Deliberately small. Any
---- other GitHub-hosted plugin can be named inline with a `repo` option, so this
---- only needs to cover the ones worth spelling shortly.
+--- Built-in shorthands: short name -> GitHub repo. Deliberately small — any
+--- other GitHub-hosted plugin can be named inline with a `repo` option.
 --- @type table<string, {repo: string}>
 M.tools = {
     ["helm-diff"] = { repo = "databus23/helm-diff" },
     ["helm-secrets"] = { repo = "jkroepke/helm-secrets" },
 }
 
---- "owner/repo" — the form the GitHub tags API needs. A full URL is rejected
---- rather than quietly normalised: BackendListVersions can only enumerate
---- versions for a GitHub repo, so a plugin hosted anywhere else would install
---- and then fail to resolve a version, which is a worse place to find out.
+--- "owner/repo" — the form the GitHub tags API needs. A URL is rejected rather
+--- than normalised: version listing only works against GitHub, so a plugin
+--- hosted elsewhere would install and then fail to resolve a version.
 local REPO_PATTERN = "^[%w._-]+/[%w._-]+$"
 
---- Resolves a short tool name to its "owner/repo" GitHub slug.
----
---- A project can name a plugin that isn't built in by passing `repo` inline;
---- mise forwards it to every hook as ctx.options (measured 2026-09-02):
+--- Resolves a short tool name to its "owner/repo" GitHub slug. A project can
+--- name a plugin that isn't built in by passing `repo` inline, which mise
+--- forwards to the hooks as ctx.options:
 ---
 ---     "helm-plugin:helm-unittest" = { version = "0.9.2", repo = "helm-unittest/helm-unittest" }
 ---

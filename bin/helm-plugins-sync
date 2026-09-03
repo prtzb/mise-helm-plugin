@@ -2,21 +2,15 @@
 # Rebuild the directory HELM_PLUGINS points at so it holds exactly the helm
 # plugins active in the current project.
 #
-# Why this is a script rather than something BackendExecEnv does (DESIGN.md §3):
-# mise does not merge same-key env_vars across tools, and it caches
-# BackendExecEnv output per tool@version — so the hook can neither contribute
-# one directory per tool nor re-run when you cd between projects. It can hand
-# over one variable per tool, though, which is where the active set below comes
-# from. No external commands beyond coreutils: no mise, no jq.
+# A script rather than something BackendExecEnv does: mise neither merges
+# same-key env_vars across tools nor re-runs the hook on cd (DESIGN.md §3).
+# Needs nothing beyond bash and coreutils.
 #
 # Usage: helm-plugins-sync [target-dir]     (default: $HELM_PLUGINS)
 set -euo pipefail
 
-# The prune loop below is the only glob in this script, and it has to see
-# everything in the target directory: without dotglob a stray `.foo` is neither
-# pruned nor reported, so it escapes the accounting entirely. nullglob makes an
-# empty directory yield no iterations at all, rather than one pass over the
-# literal string `$target/*`.
+# dotglob so a stray `.foo` can't escape the prune loop's accounting; nullglob
+# so an empty directory yields no iterations rather than the literal glob.
 shopt -s nullglob dotglob
 
 target="${1:-${HELM_PLUGINS:-}}"
@@ -41,28 +35,19 @@ mkdir -p "$target"
 wanted=()
 broken=0
 
-# Every active, installed helm-plugin:* tool exports
-# HELM_PLUGINS_SYNC_<tool>="<tool><TAB><install_path>", set by BackendExecEnv.
-# mise merges env_vars across tools as long as the keys differ — only same-key
-# collisions are last-wins, which is what stops the hook setting HELM_PLUGINS
-# directly (DESIGN.md §3). Reading them here is why this script needs neither
-# `mise ls --current --json` nor jq to parse it.
-#
-# Tools listed in mise.toml but not yet installed get no variable, so they're
-# skipped rather than reported: the ordinary state of a fresh clone before
-# `mise install`.
+# BackendExecEnv exports HELM_PLUGINS_SYNC_<tool>="<tool><TAB><install_path>"
+# for every active, installed tool. A tool listed in mise.toml but not yet
+# installed gets no variable and is skipped — the normal state of a fresh clone.
 for var in ${!HELM_PLUGINS_SYNC_@}; do
     IFS=$'\t' read -r tool install_path <<<"${!var}"
     [ -n "$tool" ] || continue
 
-    # helm names the directory after plugin.yaml's `name` field, which is not
-    # necessarily the tool name, so discover it rather than assuming.
+    # helm names the directory after plugin.yaml's `name`, which need not match
+    # the tool name, so discover it rather than assuming.
     manifest="$(find "$install_path/plugins" -mindepth 2 -maxdepth 2 -name plugin.yaml -print -quit 2>/dev/null || true)"
     if [ -z "$manifest" ]; then
-        # Warn and carry on rather than aborting: one corrupt install should not
-        # stop every other plugin from being linked. Left out of `wanted`, so its
-        # stale link (if any) gets pruned below — an unusable plugin is no better
-        # than an absent one.
+        # Warn and carry on: one corrupt install shouldn't stop the others.
+        # Left out of `wanted`, so any stale link gets pruned below.
         echo "helm-plugins-sync: $tool is installed but has no plugin.yaml under $install_path/plugins" >&2
         echo "  skipping it; to repair: mise uninstall helm-plugin:$tool@<version> && mise install" >&2
         broken=1
@@ -70,9 +55,7 @@ for var in ${!HELM_PLUGINS_SYNC_@}; do
     fi
 
     # `ln -sfn` onto an existing *directory* links into it rather than replacing
-    # it, silently corrupting whatever is there. The prune loop below refuses to
-    # delete non-symlinks; refuse to overwrite them here too, so the rule holds
-    # for directories as much as for files.
+    # it. Refuse non-symlinks here, as the prune loop does below.
     dest="$target/$tool"
     if [ -e "$dest" ] && [ ! -L "$dest" ]; then
         echo "helm-plugins-sync: $dest is not a symlink, refusing to replace it" >&2
@@ -84,8 +67,8 @@ for var in ${!HELM_PLUGINS_SYNC_@}; do
     wanted+=("$tool")
 done
 
-# Prune links for plugins that are no longer active in this project. Only ever
-# removes symlinks — anything else in the directory is left alone and reported.
+# Prune links for plugins no longer active here. Only symlinks are removed;
+# anything else is left alone and reported.
 for entry in "$target"/*; do
     name="$(basename "$entry")"
 
@@ -103,6 +86,6 @@ for entry in "$target"/*; do
     fi
 done
 
-# Non-zero only after all the useful work is done, so a broken plugin is
-# reported without preventing the others from being linked.
+# Non-zero only after the useful work is done, so a broken plugin is reported
+# without blocking the rest.
 exit "$broken"

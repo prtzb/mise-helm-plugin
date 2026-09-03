@@ -1,9 +1,5 @@
--- metadata.lua
--- Backend plugin metadata and configuration
+-- Backend plugin manifest. Repo resolution lives in lib/registry.lua.
 -- Documentation: https://mise.jdx.dev/backend-plugin-development.html
---
--- Only the manifest lives here. Which repo a plugin name maps to is
--- lib/registry.lua's job.
 
 PLUGIN = { -- luacheck: ignore
     name = "helm-plugin",

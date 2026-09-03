@@ -1,14 +1,8 @@
-# A plugin that isn't built in, named inline.
+# Both declaration forms in one [tools] table: helm-diff by its built-in
+# shorthand, helm-unittest by an inline repo since it has none.
 #
-# helm-diff uses the shorthand from PLUGIN.tools; helm-unittest is not in that
-# map and doesn't need to be, because the repo is given inline. The two forms
-# coexist in one [tools] table, which is the point of this example.
-#
-# The pin is 1.0.3 rather than the latest: helm-unittest 1.1.0 moved its
-# plugin.yaml to `platformCommand`/`platformHooks`, and neither helm 3.21 nor
-# helm 4.2 can parse `platformHooks` yet — they fail with `unknown field
-# "platformHooks"`. 1.0.3 is the last release using the classic `command`/
-# `hooks` form, and it works on both majors.
+# Pinned to 1.0.3 rather than the latest: 1.1.0 moved plugin.yaml to
+# `platformHooks`, which neither helm 3.21 nor helm 4.2 can parse.
 #
 # Try it:
 #     cd example/3 && mise install

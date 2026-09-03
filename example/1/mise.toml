@@ -1,13 +1,8 @@
-# helm 3 + a helm-secrets release that works on helm 3.
+# helm 3 + a helm-secrets release that works on helm 3. See example/2 for the
+# helm 4 side; helm-secrets up to 4.6.4 loads only on helm 3.
 #
-# helm-secrets up to 4.6.4 declares both `command` and `platformCommand` in its
-# plugin.yaml. helm 3 treats that as "use the platform entry if one matches,
-# otherwise fall back to command" — a normal pattern. helm 4 rejects it, so this
-# pin only works here. See example/2 for the helm 4 side.
-#
-# `helm plugin list` here prints a deprecation warning about that combination —
-# helm 3.21 already warns about what helm 4 turned into an error. Expected, not
-# a fault in this setup.
+# `helm plugin list` prints a deprecation warning here. Expected: helm 3.21 warns
+# about the plugin.yaml form that helm 4 rejects outright.
 [tools]
 helm = "3"
 "helm-plugin:helm-diff" = "3.9.0"

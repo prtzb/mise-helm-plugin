@@ -36,25 +36,17 @@ function PLUGIN:BackendInstall(ctx)
     -- helm's installer expects HELM_PLUGINS to exist.
     cmd.exec("mkdir -p " .. shq(plugins_dir))
 
-    -- Deliberately NOT reimplementing helm's plugin installer: helm handles
-    -- platform-specific archives and plugin.yaml install hooks (make, go build,
-    -- prebuilt binary downloads), and we inherit correctness from it.
+    -- Delegate to helm's own installer rather than reimplementing it: it knows
+    -- about platform-specific archives and plugin.yaml install hooks.
     --
-    -- HELM_PLUGINS is passed structurally via cmd.exec's env option rather than
-    -- prefixed onto a shell command line, so there's nothing to quote.
-    --
-    -- cmd.exec's `env` merges with the inherited environment rather than
-    -- replacing it (measured 2026-09-01: a variable set only in the calling
-    -- shell was visible to the command, and PATH arrived at full length). So
-    -- HELM_PLUGINS is the only key worth setting — PATH and HOME, plus the
-    -- proxy and TLS variables git needs, all come through on their own.
+    -- cmd.exec's `env` merges with the inherited environment, so HELM_PLUGINS is
+    -- the only key worth setting — PATH, HOME and the proxy and TLS variables
+    -- git needs all come through on their own.
     local env = { HELM_PLUGINS = plugins_dir }
 
-    -- helm 4 verifies plugin signatures by default and refuses any git source
-    -- with "plugin source does not support verification", which is every plugin
-    -- we install. helm 3 has no --verify flag at all, so the flag has to be
-    -- conditional on the helm actually being used — which is whichever one PATH
-    -- resolves to, and differs between an activated and non-activated shell.
+    -- helm 4 verifies plugin signatures by default and refuses every git source;
+    -- helm 3 has no --verify flag at all. So the flag depends on whichever helm
+    -- PATH resolves to, which differs between an activated and plain shell.
     local verify_flag = ""
     local ok_version, version_out = pcall(cmd.exec, "helm version --short", { env = env })
     if ok_version then
@@ -77,10 +69,9 @@ function PLUGIN:BackendInstall(ctx)
         error(string.format("helm plugin install failed for %s@%s: %s", tool, version, tostring(result)))
     end
 
-    -- helm names the directory after the `name` field in plugin.yaml, which is
-    -- not necessarily `tool` and never the version. Verify something actually
-    -- landed rather than leaving a half-installed version that mise records as
-    -- successful.
+    -- Check something actually landed, rather than leaving a half-installed
+    -- version that mise records as successful. The directory is named after
+    -- plugin.yaml's `name`, which need not match `tool`.
     local manifests = file.glob(file.join_path(plugins_dir, "*", "plugin.yaml"))
     if #manifests == 0 then
         error(
