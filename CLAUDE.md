@@ -37,7 +37,10 @@ mise install helm-plugin:helm-diff@3.9.0
   `~/.local/bin/mise`; export that first.
 - **Lua type stubs only work if annotated.** `require("file")` returns
   `unknown`, so `types/mise-plugin.lua` does nothing unless each require has a
-  `--- @type file` line above it. Without that, lint passes vacuously.
+  `--- @type file` line above it. Without that, lint passes vacuously. The
+  plugin's own `lib/` modules carry the same trap in a different shape: luals
+  resolves `require("registry")` by itself, but checks its fields only because
+  the module declares `--- @class registry`.
 - **Test configs must be trusted explicitly.** A `mise.toml` with
   `[env]`/`[hooks]` that hasn't been trusted fails to parse rather than
   degrading, and trust is recorded per file content — rewriting a config

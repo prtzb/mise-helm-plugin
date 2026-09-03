@@ -119,9 +119,9 @@ plugin's real name from its `plugin.yaml`. The two need not match.
 `repo` must be an `owner/repo` slug rather than a URL. Version listing goes
 through the GitHub tags API, so a plugin hosted anywhere else could install but
 would never resolve a version — the backend rejects the URL form up front
-instead of failing later. Adding a shorthand to `PLUGIN.tools` in
-`metadata.lua` is still worth it for plugins you use across many projects, but
-it is no longer required.
+instead of failing later. Adding a shorthand to the map in `lib/registry.lua`
+is still worth it for plugins you use across many projects, but it is no longer
+required.
 
 ## Development
 

@@ -17,7 +17,7 @@ instead of a `postinstall` hook calling `helm plugin install` directly.
 - Do **not** support every possible `plugin.yaml` hook variant. Lean on
   `helm plugin install` itself — see §1.
 - Do **not** curate a registry of all known helm plugins. The bundled map in
-  `metadata.lua` stays small. It is no longer the only way in, though: mise
+  `lib/registry.lua` stays small. It is no longer the only way in, though: mise
   forwards arbitrary tool options to every hook as `ctx.options` (measured
   2026-09-02), so a project can name any GitHub-hosted plugin inline with
   `repo = "owner/repo"`. The map is a shorthand, not a gate — which keeps the
@@ -200,6 +200,14 @@ it with `PATH=/usr/bin:/bin`, no mise and no jq in sight.
   The test tasks call `mise trust` explicitly at every write; relying on
   ambient trust state made them pass locally while a clean runner would have
   failed.
+- **Plugin-local modules work.** mise puts three directories on `package.path`
+  (measured 2026-09-03 by printing it from a hook): the plugin root, `hooks/`,
+  and `lib/`. So `require("registry")` from a hook loads `lib/registry.lua`,
+  which is where the shorthand map and repo resolution now live — `metadata.lua`
+  is the manifest and nothing else. lua-language-server resolves the same
+  require without any `.luarc.json` change, but only checks the module's fields
+  if it carries a `@class` annotation; without one it behaves exactly like the
+  unannotated `require("file")` trap and passes vacuously.
 
 ## Testing
 
@@ -241,6 +249,4 @@ could break the build for reasons unrelated to this plugin.
 - Whether `helm plugin install --version` works cleanly for every plugin
   someone might name, or whether some need a git ref rather than a semver tag.
   Fine for all four plugins tried so far.
-- Whether mise supports plugin-local `lib/` modules. If it does, the registry
-  and resolution logic should move out of `metadata.lua`.
 - The Linux half of the CI matrix has never actually run.

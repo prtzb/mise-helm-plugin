@@ -7,6 +7,7 @@ local http = require("http")
 local json = require("json")
 --- @type semver
 local semver = require("semver")
+local registry = require("registry")
 
 -- GitHub caps per_page at 100; a few pages is plenty for any helm plugin.
 local PER_PAGE = 100
@@ -57,7 +58,7 @@ end
 --- @return {versions: string[]} Available versions, ascending
 function PLUGIN:BackendListVersions(ctx)
     local tool = ctx.tool
-    local repo = PLUGIN.ResolveRepo(tool, ctx.options)
+    local repo = registry.resolve_repo(tool, ctx.options)
     local headers = github_headers()
 
     local versions = {}

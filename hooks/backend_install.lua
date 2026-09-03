@@ -7,6 +7,7 @@ local cmd = require("cmd")
 local file = require("file")
 --- @type log
 local log = require("log")
+local registry = require("registry")
 
 --- POSIX single-quote escaping, for the few places a shell string is unavoidable.
 --- @param s string
@@ -29,7 +30,7 @@ function PLUGIN:BackendInstall(ctx)
         error("Install path cannot be empty")
     end
 
-    local repo_url = PLUGIN.ResolveRepoUrl(tool, ctx.options)
+    local repo_url = registry.resolve_repo_url(tool, ctx.options)
     local plugins_dir = file.join_path(install_path, "plugins")
 
     -- helm's installer expects HELM_PLUGINS to exist.
