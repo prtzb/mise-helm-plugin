@@ -145,9 +145,10 @@ mise install helm-plugin:helm-diff@3.9.0
   involved: both shells hook `cd` without needing a prompt, so the test never
   touches the terminal it was launched from.
 - `mise run test-install-resolution` — installs with the wrong helm in front on
-  `PATH`, twice over: a mise shim, which re-applies the project's `[env]` and
-  redirects the install into `$HELM_PLUGINS`, and a helm of a different major,
-  which decides `--verify` wrongly. Both are what CI actually looks like.
+  `PATH`, three ways: a mise shim, which re-applies the project's `[env]` and
+  redirects the install into `$HELM_PLUGINS`; a helm of a different major, which
+  decides `--verify` wrongly; and no helm at all, where the hook has to wait for
+  the one mise is installing in parallel. All three are shapes CI runs in.
 
 `helm-plugins-sync` exits non-zero if anything needed attention — a plugin
 installed without a readable `plugin.yaml`, or a non-symlink sitting in the

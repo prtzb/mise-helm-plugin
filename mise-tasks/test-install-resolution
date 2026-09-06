@@ -3,8 +3,9 @@
 #
 # This hook inherits the ambient PATH rather than the project's tools, so the
 # helm it finds there is routinely the wrong one: a mise shim (which re-applies
-# the project's [env] and redirects the install), or a system helm of another
-# major (which decides --verify wrongly). Both shapes below come from CI.
+# the project's [env] and redirects the install), a system helm of another major
+# (which decides --verify wrongly), or nothing at all. All three shapes below
+# come from CI — the last one is a macOS runner, which ships no helm.
 set -euo pipefail
 
 plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -110,8 +111,9 @@ EOF
 
     (
         cd "$proj"
-        # Deliberately starting from the outer PATH, not the shim scenario's.
-        # shellcheck disable=SC2031
+        # Deliberately starting from the outer PATH, not the shim scenario's,
+        # and deliberately not leaking into the one after it.
+        # shellcheck disable=SC2030,SC2031
         export PATH="$root/pathbin:$PATH"
         mise install helm >/dev/null
 
@@ -137,6 +139,50 @@ EOF
         echo "  [major] installed to $install_path/plugins"
     ) || fail=1
 fi
+
+echo "==> no helm on PATH at all must still install"
+# The macOS runner shape. helm is pinned but still installing in parallel, and
+# there is nothing on PATH to fall back to, so the hook has to wait for it.
+# Needs a data dir of its own: with helm already installed by the scenarios
+# above, `mise which` would answer immediately and never exercise the wait.
+proj="$root/nohelm"
+mkdir -p "$proj"
+cat >"$proj/mise.toml" <<'EOF'
+[tools]
+helm = "3"
+"helm-plugin:helm-diff" = "3.9.0"
+EOF
+mise trust "$proj/mise.toml" >/dev/null
+
+mise_dir="$(dirname "$(command -v mise)")"
+(
+    cd "$proj"
+    # /usr/bin:/bin rather than the inherited PATH, which has a helm on both
+    # this machine and the ubuntu runner. Asserted below rather than assumed.
+    # shellcheck disable=SC2031
+    export PATH="$mise_dir:/usr/bin:/bin"
+    export MISE_DATA_DIR="$root/mise-data-nohelm"
+
+    if command -v helm >/dev/null; then
+        echo "FAIL [nohelm]: helm is still on PATH at $(command -v helm) — proves nothing" >&2
+        exit 1
+    fi
+
+    # The fresh data dir has no plugins registered yet.
+    mise plugin link --force helm-plugin "$plugin_dir" >/dev/null
+    if ! out="$(mise install 2>&1)"; then
+        echo "FAIL [nohelm]: mise install failed:" >&2
+        echo "$out" | grep -E 'command not found|Error|error' | head -2 >&2
+        exit 1
+    fi
+
+    install_path="$(mise where helm-plugin:helm-diff@3.9.0)"
+    if ! find "$install_path/plugins" -mindepth 2 -maxdepth 2 -name plugin.yaml -print -quit | grep -q .; then
+        echo "FAIL [nohelm]: helm-diff@3.9.0 did not install" >&2
+        exit 1
+    fi
+    echo "  [nohelm] installed to $install_path/plugins"
+) || fail=1
 
 if [ "$fail" -eq 0 ]; then
     echo "PASS: install resolves the project's helm, past shims and PATH"

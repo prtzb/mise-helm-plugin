@@ -33,11 +33,21 @@ local function mise_which_helm()
     return path ~= "" and path or nil
 end
 
+--- Whether the current config pins helm, installed or not. `mise ls --current`
+--- lists it as "(missing)" when it's declared but absent, and prints nothing at
+--- all when no config mentions it.
+--- @return boolean
+local function helm_is_pinned()
+    local ok, out = pcall(cmd.exec, "mise ls --current --offline helm 2>/dev/null")
+    return ok and out ~= nil and tostring(out):match("%S") ~= nil
+end
+
 --- The helm to both probe and install with.
 ---
 --- PATH's helm is often neither the one the project pins nor safe to use: this
---- hook inherits the ambient PATH rather than the project's tools, so it picks
---- up a system helm (a CI runner image ships one) or a shim.
+--- hook inherits the ambient PATH rather than the project's tools, so what it
+--- finds there is a system helm of some other major, a shim, or on a macOS CI
+--- runner nothing at all.
 --- @return string
 local function resolve_helm()
     local path = mise_which_helm()
@@ -45,12 +55,20 @@ local function resolve_helm()
         return path
     end
 
-    -- mise installs tools in parallel with no way to declare a dependency, so
-    -- helm is often still installing when this hook starts and `mise which`
-    -- fails outright. Running PATH's helm is what makes a shim materialise it;
-    -- then mise can name the real binary.
-    pcall(cmd.exec, "helm version --short")
-    return mise_which_helm() or "helm"
+    -- mise installs tools in parallel with no way to declare a dependency, so a
+    -- project's helm is usually still installing when this hook starts. Asking
+    -- for it again blocks until that finishes rather than racing it. Gated on
+    -- the pin: without one this would install a helm nobody asked for, when the
+    -- right answer is the system helm already on PATH.
+    if helm_is_pinned() then
+        pcall(cmd.exec, "mise install helm")
+        path = mise_which_helm()
+        if path then
+            return path
+        end
+    end
+
+    return "helm"
 end
 
 --- @param ctx {tool: string, version: string, install_path: string, download_path: string, options: table} Context
