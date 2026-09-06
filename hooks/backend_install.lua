@@ -33,6 +33,26 @@ local function mise_which_helm()
     return path ~= "" and path or nil
 end
 
+--- The helm to both probe and install with.
+---
+--- PATH's helm is often neither the one the project pins nor safe to use: this
+--- hook inherits the ambient PATH rather than the project's tools, so it picks
+--- up a system helm (a CI runner image ships one) or a shim.
+--- @return string
+local function resolve_helm()
+    local path = mise_which_helm()
+    if path then
+        return path
+    end
+
+    -- mise installs tools in parallel with no way to declare a dependency, so
+    -- helm is often still installing when this hook starts and `mise which`
+    -- fails outright. Running PATH's helm is what makes a shim materialise it;
+    -- then mise can name the real binary.
+    pcall(cmd.exec, "helm version --short")
+    return mise_which_helm() or "helm"
+end
+
 --- @param ctx {tool: string, version: string, install_path: string, download_path: string, options: table} Context
 --- @return table Empty table on success
 function PLUGIN:BackendInstall(ctx)
@@ -61,11 +81,14 @@ function PLUGIN:BackendInstall(ctx)
     -- git needs all come through on their own.
     local env = { HELM_PLUGINS = plugins_dir }
 
-    -- helm 4 verifies plugin signatures by default and refuses every git source;
-    -- helm 3 has no --verify flag at all. So the flag depends on whichever helm
-    -- PATH resolves to, which differs between an activated and plain shell.
+    -- One binary for both the probe and the install below. helm 4 verifies
+    -- plugin signatures by default and refuses every git source, helm 3 has no
+    -- --verify flag at all, and probing a different helm than the one doing the
+    -- install gets that flag wrong in whichever direction they disagree.
+    local helm = shq(resolve_helm())
+
     local verify_flag = ""
-    local ok_version, version_out = pcall(cmd.exec, "helm version --short", { env = env })
+    local ok_version, version_out = pcall(cmd.exec, helm .. " version --short", { env = env })
     if ok_version then
         local major = tonumber(tostring(version_out):match("v(%d+)%."))
         if major and major >= 4 then
@@ -75,13 +98,6 @@ function PLUGIN:BackendInstall(ctx)
     else
         log.warn("could not determine helm version, assuming helm 3: " .. tostring(version_out))
     end
-
-    -- Resolved only now, after the probe above: mise installs tools in parallel
-    -- and offers no way to depend on one, so helm is often still installing when
-    -- this hook starts. The probe is what forces a shim to materialise it, and
-    -- only then can `mise which` name the real binary. Falling back to PATH is
-    -- right for a helm mise doesn't manage — no shim, nothing to override us.
-    local helm = shq(mise_which_helm() or "helm")
 
     local install_cmd =
         string.format("%s plugin install %s --version %s%s", helm, shq(repo_url), shq(version), verify_flag)

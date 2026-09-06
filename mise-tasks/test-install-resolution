@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+#MISE description="BackendInstall runs the helm the project pins, not whatever PATH offers"
+#
+# This hook inherits the ambient PATH rather than the project's tools, so the
+# helm it finds there is routinely the wrong one: a mise shim (which re-applies
+# the project's [env] and redirects the install), or a system helm of another
+# major (which decides --verify wrongly). Both shapes below come from CI.
+set -euo pipefail
+
+plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+root="$(mktemp -d)"
+export MISE_DATA_DIR="$root/mise-data"
+
+targets=()
+cleanup() {
+    rm -rf "$root" ${targets[@]+"${targets[@]}"}
+}
+trap cleanup EXIT
+
+mise plugin link --force helm-plugin "$plugin_dir"
+
+fail=0
+
+echo "==> helm resolving to a mise shim must not redirect the install"
+proj="$root/shim"
+mkdir -p "$proj"
+cat >"$proj/mise.toml" <<'EOF'
+[tools]
+helm = "3"
+"helm-plugin:helm-diff" = "3.9.0"
+
+[env]
+HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"
+EOF
+mise trust "$proj/mise.toml" >/dev/null
+
+# A mise shim is a symlink named after the tool, pointing at the mise binary.
+# Built here rather than borrowed from ~/.local/share/mise/shims so the test
+# doesn't depend on which tools this machine happens to have installed.
+mkdir -p "$root/shimbin"
+ln -s "$(command -v mise)" "$root/shimbin/helm"
+
+(
+    cd "$proj"
+    # Local to this subshell on purpose: the next scenario needs a PATH of its
+    # own, and neither should leak into the other.
+    # shellcheck disable=SC2030
+    export PATH="$root/shimbin:$PATH"
+
+    resolved="$(command -v helm)"
+    if [ "$resolved" != "$root/shimbin/helm" ]; then
+        echo "FAIL [shim]: helm resolved to '$resolved', not the shim — proves nothing" >&2
+        exit 1
+    fi
+
+    # Checked rather than left to set -e: inside a subshell in an || list, -e is
+    # suppressed, so a failure here would otherwise surface as a confusing
+    # assertion failure further down.
+    if ! out="$(mise install 2>&1)"; then
+        echo "FAIL [shim]: mise install failed:" >&2
+        echo "$out" | tail -3 >&2
+        exit 1
+    fi
+    install_path="$(mise where helm-plugin:helm-diff@3.9.0)"
+    if ! find "$install_path/plugins" -mindepth 2 -maxdepth 2 -name plugin.yaml -print -quit | grep -q .; then
+        echo "FAIL [shim]: no plugin.yaml under $install_path/plugins — it installed elsewhere" >&2
+        exit 1
+    fi
+
+    # Nothing should have been written into the project's directory: only
+    # helm-plugins-sync puts anything there, and only ever symlinks.
+    target="$(mise env -s bash | sed -n 's/^export HELM_PLUGINS=//p')"
+    strays="$(find "$target" -mindepth 1 -maxdepth 1 ! -type l 2>/dev/null | tr '\n' ' ' || true)"
+    if [ -n "$strays" ]; then
+        echo "FAIL [shim]: install wrote into the project's HELM_PLUGINS: $strays" >&2
+        exit 1
+    fi
+    echo "  [shim] installed to $install_path/plugins"
+) || fail=1
+
+# The state dir this project used, cleaned up whether or not it got that far.
+targets+=("$(cd "$proj" && mise env -s bash | sed -n 's/^export HELM_PLUGINS=//p')")
+
+echo "==> a different helm major on PATH must not decide --verify"
+# helm 3 was just installed above; put it on PATH in front of a project pinning
+# helm 4. helm 4 refuses every git source unless --verify=false, so if the
+# version probe reads PATH's helm 3 while the install runs helm 4, the flag is
+# omitted and the install fails with "plugin source does not support
+# verification". helm 4 is installed first so `mise which` can resolve it,
+# which is what makes the two disagree rather than both falling back.
+# -L because mise's version aliases (installs/helm/3 -> 3.21.4) are symlinked
+# directories, which find won't descend into otherwise.
+helm3="$(find -L "$MISE_DATA_DIR/installs/helm" -type f -name helm 2>/dev/null | head -1)"
+if [ -z "$helm3" ]; then
+    echo "FAIL [major]: no helm 3 binary from the first scenario to put on PATH" >&2
+    fail=1
+else
+    proj="$root/major"
+    mkdir -p "$proj"
+    cat >"$proj/mise.toml" <<'EOF'
+[tools]
+helm = "4"
+"helm-plugin:helm-diff" = "3.10.0"
+EOF
+    mise trust "$proj/mise.toml" >/dev/null
+
+    mkdir -p "$root/pathbin"
+    ln -s "$helm3" "$root/pathbin/helm"
+
+    (
+        cd "$proj"
+        # Deliberately starting from the outer PATH, not the shim scenario's.
+        # shellcheck disable=SC2031
+        export PATH="$root/pathbin:$PATH"
+        mise install helm >/dev/null
+
+        probe="$(helm version --short)"
+        case "$probe" in
+        v3.*) echo "  [major] PATH offers $probe, project pins helm 4" ;;
+        *)
+            echo "FAIL [major]: expected helm 3 on PATH, got '$probe' — proves nothing" >&2
+            exit 1
+            ;;
+        esac
+
+        if ! out="$(mise install 2>&1)"; then
+            echo "FAIL [major]: mise install failed:" >&2
+            echo "$out" | grep -E 'verification|Error|error' | head -2 >&2
+            exit 1
+        fi
+        install_path="$(mise where helm-plugin:helm-diff@3.10.0)"
+        if ! find "$install_path/plugins" -mindepth 2 -maxdepth 2 -name plugin.yaml -print -quit | grep -q .; then
+            echo "FAIL [major]: helm-diff@3.10.0 did not install under helm 4" >&2
+            exit 1
+        fi
+        echo "  [major] installed to $install_path/plugins"
+    ) || fail=1
+fi
+
+if [ "$fail" -eq 0 ]; then
+    echo "PASS: install resolves the project's helm, past shims and PATH"
+else
+    echo "FAILED" >&2
+    exit 1
+fi

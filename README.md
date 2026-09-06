@@ -144,10 +144,10 @@ mise install helm-plugin:helm-diff@3.9.0
   and checks that `cd` alone rebuilds the directory. No interactive shell is
   involved: both shells hook `cd` without needing a prompt, so the test never
   touches the terminal it was launched from.
-- `mise run test-shim-install` — installs with `helm` resolving to a mise shim,
-  the way it does under `mise-action` or `mise activate --shims`. A shim
-  re-applies the project's `[env]`, which used to redirect the install into
-  `$HELM_PLUGINS`.
+- `mise run test-install-resolution` — installs with the wrong helm in front on
+  `PATH`, twice over: a mise shim, which re-applies the project's `[env]` and
+  redirects the install into `$HELM_PLUGINS`, and a helm of a different major,
+  which decides `--verify` wrongly. Both are what CI actually looks like.
 
 `helm-plugins-sync` exits non-zero if anything needed attention — a plugin
 installed without a readable `plugin.yaml`, or a non-symlink sitting in the

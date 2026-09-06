@@ -28,13 +28,13 @@ run = "hk fix --all"
 
 [tasks.test]
 description = "Run all end-to-end tests (needs network; installs real helm plugins)"
-# Sequential rather than `depends`, which runs them in parallel: all three link
-# the plugin at the same global path, and two share a data dir.
+# Sequential rather than `depends`, which runs them in parallel: they all link
+# the plugin at the same global path, and several share a data dir.
 run = [
     "mise run test-activation",
     "mise run test-sync-hardening",
     "mise run test-activate-hook",
-    "mise run test-shim-install",
+    "mise run test-install-resolution",
 ]
 
 [tasks.ci]

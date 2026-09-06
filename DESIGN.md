@@ -245,10 +245,13 @@ runs race).
   the suite. It takes the foreground process group and can leave the invoking
   shell in the background. Running both shells also means the test never skips
   entirely, since bash is always present.
-- `test-shim-install` — installs with `helm` resolving to a mise shim, built in
-  the test as a symlink to the mise binary rather than borrowed from the
-  machine's shims directory. Negative control checked: without the fix the
-  install fails outright.
+- `test-install-resolution` — two shapes of "the wrong helm is in front on
+  PATH": a mise shim (built in the test as a symlink to the mise binary, so it
+  doesn't depend on the machine's shims directory), and a helm of a different
+  major than the project pins. Both assert they really got the wrong helm before
+  trusting the result. Negative controls checked separately, one per scenario:
+  installing through PATH's helm fails the first, probing PATH's helm while
+  installing with the resolved one fails the second.
 - `mise run ci` — lint only, hermetic, fast. CI runs it as a separate job from
   the tests.
 

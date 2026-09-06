@@ -16,12 +16,12 @@ A mise backend plugin that installs helm plugins, so they can be pinned in
 ```sh
 mise run lint          # hk: stylua + lua-language-server + actionlint + shellcheck
 mise run format        # stylua
-mise run test          # all three end-to-end tests, sequentially
+mise run test          # all four end-to-end tests, sequentially
 mise run ci            # lint only — hermetic and fast, what CI's lint job runs
 ```
 
 Individual tests: `test-activation`, `test-sync-hardening`, `test-activate-hook`,
-`test-shim-install`.
+`test-install-resolution`.
 They need network and install real helm plugins.
 
 For manual work against the plugin:
@@ -42,11 +42,16 @@ mise install helm-plugin:helm-diff@3.9.0
   plugin's own `lib/` modules carry the same trap in a different shape: luals
   resolves `require("registry")` by itself, but checks its fields only because
   the module declares `--- @class registry`.
+- **Repeated test runs exhaust the GitHub API limit.** Version listing is
+  unauthenticated at 60 requests/hour, and a debugging session goes through that
+  fast; the symptom is `GitHub API returned status 403` from
+  `backend_list_versions`, which looks like a code failure and isn't. Export
+  `GITHUB_TOKEN` for 5000/hour, as CI does.
 - **Test configs must be trusted explicitly.** A `mise.toml` with
   `[env]`/`[hooks]` that hasn't been trusted fails to parse rather than
   degrading, and trust is recorded per file content — rewriting a config
   invalidates it. Every test calls `mise trust` at each write.
-- **Tests share global state.** All three call
+- **Tests share global state.** They all call
   `mise plugin link --force helm-plugin`, so they run sequentially, not via
   `depends`.
 - **helm 3 and helm 4 differ in ways that matter.** helm 4 needs
