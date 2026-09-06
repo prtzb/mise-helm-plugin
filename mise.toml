@@ -34,6 +34,7 @@ run = [
     "mise run test-activation",
     "mise run test-sync-hardening",
     "mise run test-activate-hook",
+    "mise run test-shim-install",
 ]
 
 [tasks.ci]

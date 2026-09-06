@@ -16,6 +16,23 @@ local function shq(s)
     return "'" .. s:gsub("'", [['\'']]) .. "'"
 end
 
+--- Absolute path to helm, or nil if mise can't resolve one.
+---
+--- The install must not run through a mise shim. A shim is mise re-execing the
+--- real binary, and on the way it re-applies the project's `[env]` over the
+--- environment it was given — including the HELM_PLUGINS a consuming project
+--- sets. helm would then install into the project's plugin directory instead of
+--- this tool's install path, and report success either way.
+--- @return string|nil
+local function mise_which_helm()
+    local ok, out = pcall(cmd.exec, "mise which helm")
+    if not ok or not out then
+        return nil
+    end
+    local path = tostring(out):gsub("%s+$", "")
+    return path ~= "" and path or nil
+end
+
 --- @param ctx {tool: string, version: string, install_path: string, download_path: string, options: table} Context
 --- @return table Empty table on success
 function PLUGIN:BackendInstall(ctx)
@@ -59,7 +76,15 @@ function PLUGIN:BackendInstall(ctx)
         log.warn("could not determine helm version, assuming helm 3: " .. tostring(version_out))
     end
 
-    local install_cmd = string.format("helm plugin install %s --version %s%s", shq(repo_url), shq(version), verify_flag)
+    -- Resolved only now, after the probe above: mise installs tools in parallel
+    -- and offers no way to depend on one, so helm is often still installing when
+    -- this hook starts. The probe is what forces a shim to materialise it, and
+    -- only then can `mise which` name the real binary. Falling back to PATH is
+    -- right for a helm mise doesn't manage — no shim, nothing to override us.
+    local helm = shq(mise_which_helm() or "helm")
+
+    local install_cmd =
+        string.format("%s plugin install %s --version %s%s", helm, shq(repo_url), shq(version), verify_flag)
 
     log.debug("running: " .. install_cmd .. " (HELM_PLUGINS=" .. plugins_dir .. ")")
 
@@ -76,7 +101,9 @@ function PLUGIN:BackendInstall(ctx)
     if #manifests == 0 then
         error(
             string.format(
-                "helm plugin install reported success for %s@%s but no plugin.yaml was found under %s. Output: %s",
+                "helm plugin install reported success for %s@%s but no plugin.yaml was found under %s. "
+                    .. "If helm ran through a mise shim, HELM_PLUGINS was overridden and the plugin landed "
+                    .. "in the project's plugin directory instead. Output: %s",
                 tool,
                 version,
                 plugins_dir,

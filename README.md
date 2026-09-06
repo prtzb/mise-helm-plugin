@@ -132,7 +132,7 @@ mise install helm-plugin:helm-diff@3.9.0
 ```
 
 - `mise run lint` / `mise run format` — hk + stylua + actionlint + shellcheck
-- `mise run test` — all three end-to-end tests below, in sequence. Needs network
+- `mise run test` — all four end-to-end tests below, in sequence. Needs network
   and installs real helm plugins, so it's a separate CI job from `mise run ci`,
   which stays lint-only and hermetic.
 - `mise run test-activation` — end-to-end: two projects pinning different
@@ -144,6 +144,10 @@ mise install helm-plugin:helm-diff@3.9.0
   and checks that `cd` alone rebuilds the directory. No interactive shell is
   involved: both shells hook `cd` without needing a prompt, so the test never
   touches the terminal it was launched from.
+- `mise run test-shim-install` — installs with `helm` resolving to a mise shim,
+  the way it does under `mise-action` or `mise activate --shims`. A shim
+  re-applies the project's `[env]`, which used to redirect the install into
+  `$HELM_PLUGINS`.
 
 `helm-plugins-sync` exits non-zero if anything needed attention — a plugin
 installed without a readable `plugin.yaml`, or a non-symlink sitting in the

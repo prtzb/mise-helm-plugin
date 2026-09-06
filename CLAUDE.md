@@ -20,7 +20,8 @@ mise run test          # all three end-to-end tests, sequentially
 mise run ci            # lint only — hermetic and fast, what CI's lint job runs
 ```
 
-Individual tests: `test-activation`, `test-sync-hardening`, `test-activate-hook`.
+Individual tests: `test-activation`, `test-sync-hardening`, `test-activate-hook`,
+`test-shim-install`.
 They need network and install real helm plugins.
 
 For manual work against the plugin:

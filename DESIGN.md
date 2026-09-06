@@ -209,11 +209,20 @@ it with `PATH=/usr/bin:/bin`, no mise and no jq in sight.
   if it carries a `@class` annotation; without one it behaves exactly like the
   unannotated `require("file")` trap and passes vacuously.
 
+- **A mise shim overrides the environment you hand it.** A shim is mise
+  re-execing the real binary, re-applying the project's `[env]` on the way.
+  Measured 2026-09-06: with `HELM_PLUGINS` set on the command line, the real
+  binary reported the value passed and the shim reported the project's. So
+  `BackendInstall` resolves helm with `mise which` and runs that path directly —
+  through a shim, `helm plugin install` puts the plugin in the project's
+  `$HELM_PLUGINS` and still reports success. This is the shape CI runs in:
+  `mise-action` puts shims on `PATH`.
+
 ## Testing
 
-Four tasks, all runnable individually; `mise run test` runs the three
-end-to-end ones sequentially (they share the global plugin link and data dir,
-so parallel runs race).
+Five tasks, all runnable individually; `mise run test` runs the four end-to-end
+ones sequentially (they share the global plugin link and data dir, so parallel
+runs race).
 
 - `test-activation` — the main one. Projects pinning different helm-diff
   versions on different helm majors, revisited to catch state leaking between
@@ -236,6 +245,10 @@ so parallel runs race).
   the suite. It takes the foreground process group and can leave the invoking
   shell in the background. Running both shells also means the test never skips
   entirely, since bash is always present.
+- `test-shim-install` — installs with `helm` resolving to a mise shim, built in
+  the test as a symlink to the mise binary rather than borrowed from the
+  machine's shims directory. Negative control checked: without the fix the
+  install fails outright.
 - `mise run ci` — lint only, hermetic, fast. CI runs it as a separate job from
   the tests.
 
