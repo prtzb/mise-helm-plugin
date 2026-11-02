@@ -1,0 +1,80 @@
+# mise-helm-plugin
+
+A mise backend plugin that installs helm plugins, so they can be pinned in
+`mise.toml` as `helm-plugin:<name>`.
+
+## Orientation
+
+- `README.md` — how to use it.
+- `DESIGN.md` — why it's shaped this way, and everything measured to find out.
+  §3 (why `BackendExecEnv` can't do activation) is referenced from code
+  comments by number; don't renumber it casually.
+- `TODO.md` — what's done and what's left, with the reasoning.
+
+## Commands
+
+```sh
+mise run lint          # hk: stylua + lua-language-server + actionlint + shellcheck
+mise run format        # stylua
+mise run test          # all four end-to-end tests, sequentially
+mise run ci            # lint only — hermetic and fast, what CI's lint job runs
+```
+
+Individual tests: `test-activation`, `test-sync-hardening`, `test-activate-hook`,
+`test-install-resolution`.
+They need network and install real helm plugins.
+
+For manual work against the plugin:
+
+```sh
+mise plugin link --force helm-plugin .
+mise ls-remote helm-plugin:helm-diff
+mise install helm-plugin:helm-diff@3.9.0
+```
+
+## Things that will bite you
+
+- **`mise` is not on the default PATH in tool shells.** It's at
+  `~/.local/bin/mise`; export that first.
+- **Lua type stubs only work if annotated.** `require("file")` returns
+  `unknown`, so `types/mise-plugin.lua` does nothing unless each require has a
+  `--- @type file` line above it. Without that, lint passes vacuously. The
+  plugin's own `lib/` modules carry the same trap in a different shape: luals
+  resolves `require("registry")` by itself, but checks its fields only because
+  the module declares `--- @class registry`.
+- **Repeated test runs exhaust the GitHub API limit.** Version listing is
+  unauthenticated at 60 requests/hour, and a debugging session goes through that
+  fast; the symptom is `GitHub API returned status 403` from
+  `backend_list_versions`, which looks like a code failure and isn't. Export
+  `GITHUB_TOKEN` for 5000/hour, as CI does.
+- **Test configs must be trusted explicitly.** A `mise.toml` with
+  `[env]`/`[hooks]` that hasn't been trusted fails to parse rather than
+  degrading, and trust is recorded per file content — rewriting a config
+  invalidates it. Every test calls `mise trust` at each write.
+- **Tests share global state.** Three of the four run against a scratch
+  `MISE_DATA_DIR`, but trust records, the XDG state dir and
+  `test-activate-hook`'s global `mise plugin link` are still shared, so they
+  run sequentially, not via `depends`.
+- **mise ignores options when deciding what's installed.** Installs are keyed
+  on tool@version, so adding `repo` or `asset` to an already-installed tool name
+  does nothing. Test against a scratch `MISE_DATA_DIR`, or a test can pass on
+  someone else's stale install.
+- **mise templates config values before hooks see them.** `{{version}}`
+  arrives as `{version}`; that's why `asset` documents single braces.
+- **Plugin directory names aren't plugin names.** A repo install is named after
+  the repo (`helm-diff/` holds `name: diff`); compare `plugin.yaml`'s `name`.
+- **helm 3 and helm 4 differ in ways that matter.** helm 4 needs
+  `--verify=false` at install time and ignores `HELM_PLUGINS` for archive
+  installs (`HELM_DATA_HOME` redirects them); helm 3 can't install archives from
+  a URL at all; plugin.yaml fields (`command` vs
+  `platformCommand`, `platformHooks`) decide which plugin versions load on
+  which major. Pin deliberately and check both.
+- **macOS ships bash 3.2.** No `${arr[-1]}`, no associative arrays. Keep the
+  shell portable — CI runs Linux too, so no `sed -i ''` either.
+
+## Conventions
+
+Commit messages: imperative subject, then a body explaining *why* and what was
+measured. Verify claims by running things rather than asserting them; when a
+test is added for a bug, check the negative control (that it fails without the
+fix). Existing commits show the register.

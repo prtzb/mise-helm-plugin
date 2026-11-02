@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# Rebuild the directory HELM_PLUGINS points at so it holds exactly the helm
+# plugins active in the current project.
+#
+# A script rather than something BackendExecEnv does: mise neither merges
+# same-key env_vars across tools nor re-runs the hook on cd (DESIGN.md §3).
+# Needs nothing beyond bash and coreutils.
+#
+# Usage: helm-plugins-sync [target-dir]     (default: $HELM_PLUGINS)
+set -euo pipefail
+
+# dotglob so a stray `.foo` can't escape the prune loop's accounting; nullglob
+# so an empty directory yields no iterations rather than the literal glob.
+shopt -s nullglob dotglob
+
+target="${1:-${HELM_PLUGINS:-}}"
+
+if [ -z "$target" ]; then
+    cat >&2 <<'EOF'
+helm-plugins-sync: HELM_PLUGINS is not set and no target directory was given.
+
+Add to your project's mise.toml:
+
+    [env]
+    HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"
+
+    [hooks]
+    enter = "helm-plugins-sync"
+    postinstall = "helm-plugins-sync"
+EOF
+    exit 1
+fi
+
+mkdir -p "$target"
+
+wanted=()
+claimed=()
+broken=0
+
+# BackendExecEnv exports HELM_PLUGINS_SYNC_<tool>="<tool><TAB><install_path>"
+# for every active, installed tool. A tool listed in mise.toml but not yet
+# installed gets no variable and is skipped — the normal state of a fresh clone.
+for var in ${!HELM_PLUGINS_SYNC_@}; do
+    IFS=$'\t' read -r tool install_path <<<"${!var}"
+    [ -n "$tool" ] || continue
+
+    # The directory under plugins/ is named after the repo for a repo install
+    # and after the archive for an asset install, and need not match the tool
+    # name either, so discover it rather than assuming.
+    manifest="$(find "$install_path/plugins" -mindepth 2 -maxdepth 2 -name plugin.yaml -print -quit 2>/dev/null || true)"
+    if [ -z "$manifest" ]; then
+        # Warn and carry on: one corrupt install shouldn't stop the others.
+        # Left out of `wanted`, so any stale link gets pruned below.
+        echo "helm-plugins-sync: $tool is installed but has no plugin.yaml under $install_path/plugins" >&2
+        echo "  skipping it; to repair: mise uninstall helm-plugin:$tool@<version> && mise install" >&2
+        broken=1
+        continue
+    fi
+
+    # Two tools can resolve to the same helm plugin — pinning one repo under two
+    # names, say. helm refuses to load *anything* then ("two plugins claim the
+    # name X"), taking every unrelated plugin down with it, so drop the later
+    # one and keep helm working. helm collides on plugin.yaml's `name`, not on
+    # the directory, and the two differ: a repo install of helm-secrets is
+    # "helm-secrets/" holding name "secrets", the archive install "secrets/".
+    helm_name="$(sed -n 's/^name:[[:space:]]*//p' "$manifest" | head -1 | tr -d "\"' \r")"
+    [ -n "$helm_name" ] || helm_name="$(basename "$(dirname "$manifest")")"
+    clash=""
+    for c in ${claimed[@]+"${claimed[@]}"}; do
+        case "$c" in
+        "$helm_name"$'\t'*) clash="${c#*$'\t'}" ;;
+        esac
+    done
+    if [ -n "$clash" ]; then
+        echo "helm-plugins-sync: $tool and $clash both install the helm plugin '$helm_name'" >&2
+        echo "  linking $clash only; helm loads no plugins at all when two claim one name" >&2
+        broken=1
+        continue
+    fi
+    claimed+=("$helm_name"$'\t'"$tool")
+
+    # `ln -sfn` onto an existing *directory* links into it rather than replacing
+    # it. Refuse non-symlinks here, as the prune loop does below.
+    dest="$target/$tool"
+    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+        echo "helm-plugins-sync: $dest is not a symlink, refusing to replace it" >&2
+        broken=1
+        continue
+    fi
+
+    ln -sfn "$(dirname "$manifest")" "$dest"
+    wanted+=("$tool")
+done
+
+# Prune links for plugins no longer active here. Only symlinks are removed;
+# anything else is left alone and reported.
+for entry in "$target"/*; do
+    name="$(basename "$entry")"
+
+    keep=false
+    for w in ${wanted[@]+"${wanted[@]}"}; do
+        [ "$w" = "$name" ] && keep=true && break
+    done
+    [ "$keep" = true ] && continue
+
+    if [ -L "$entry" ]; then
+        rm -f "$entry"
+    else
+        echo "helm-plugins-sync: $entry is not a symlink, leaving it alone" >&2
+        broken=1
+    fi
+done
+
+# Non-zero only after the useful work is done, so a broken plugin is reported
+# without blocking the rest.
+exit "$broken"

@@ -1,0 +1,16 @@
+# helm 3 + a helm-secrets release that works on helm 3. See example/2 for the
+# helm 4 side; helm-secrets up to 4.6.4 loads only on helm 3.
+#
+# `helm plugin list` prints a deprecation warning here. Expected: helm 3.21 warns
+# about the plugin.yaml form that helm 4 rejects outright.
+[tools]
+helm = "3"
+"helm-plugin:helm-diff" = "3.9.0"
+"helm-plugin:helm-secrets" = "4.6.0"
+
+[env]
+HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"
+
+[hooks]
+enter = "helm-plugins-sync"
+postinstall = "helm-plugins-sync"

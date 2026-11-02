@@ -1,0 +1,21 @@
+# Both declaration forms in one [tools] table: helm-diff by its built-in
+# shorthand, helm-unittest by an inline repo since it has none.
+#
+# Pinned to 1.0.3 rather than the latest: 1.1.0 moved plugin.yaml to
+# `platformHooks`, which neither helm 3.21 nor helm 4.2 can parse.
+#
+# Try it:
+#     cd example/3 && mise install
+#     helm plugin list           # in a shell with `mise activate`
+#     mise exec -- helm-plugins-sync && mise exec -- helm plugin list
+[tools]
+helm = "3"
+"helm-plugin:helm-diff" = "3.9.0"
+"helm-plugin:helm-unittest" = { version = "1.0.3", repo = "helm-unittest/helm-unittest" }
+
+[env]
+HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"
+
+[hooks]
+enter = "helm-plugins-sync"
+postinstall = "helm-plugins-sync"

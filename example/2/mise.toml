@@ -1,0 +1,28 @@
+# helm 4 + helm-secrets, which ships as three separate plugins for helm 4.
+#
+# They exist only as release archives, not as anything `helm plugin install`
+# can check out of the repo, so each names its `asset`. The repo's root
+# plugin.yaml is still the old combined plugin: installing it three times would
+# give three plugins all called "secrets", and helm then loads none of them.
+#
+# {version} in single braces — mise rewrites {{version}} to {version} while
+# templating the config, so the doubled form never reaches the backend.
+#
+# The tool names are new rather than reusing "helm-secrets": mise keys installs
+# on tool@version and ignores the options, so a name already installed from the
+# repo would keep that install and quietly ignore `asset`.
+#
+# Asset installs need helm 4; on helm 3 use the repo form, as example/1 does.
+[tools]
+helm = "4"
+"helm-plugin:helm-diff" = "3.10.0"
+"helm-plugin:helm-secrets-cli" = { version = "4.7.7", repo = "jkroepke/helm-secrets", asset = "secrets-{version}.tgz" }
+"helm-plugin:helm-secrets-getter" = { version = "4.7.7", repo = "jkroepke/helm-secrets", asset = "secrets-getter-{version}.tgz" }
+"helm-plugin:helm-secrets-post-renderer" = { version = "4.7.7", repo = "jkroepke/helm-secrets", asset = "secrets-post-renderer-{version}.tgz" }
+
+[env]
+HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"
+
+[hooks]
+enter = "helm-plugins-sync"
+postinstall = "helm-plugins-sync"

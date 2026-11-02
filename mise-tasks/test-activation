@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+#MISE description="End-to-end: two projects pinning different versions of the same helm plugin"
+#
+# Sibling projects pinning different versions of helm-diff; each must see its
+# own, and the project with two plugins must see both.
+set -euo pipefail
+
+plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+command -v helm >/dev/null || {
+    echo "helm not found on PATH — it's a hard dependency of this backend" >&2
+    exit 1
+}
+
+root="$(mktemp -d)"
+
+# A scratch data dir, so what's already installed on this machine can't decide
+# the result. mise keys installs on tool@version and ignores the options, so a
+# tool installed once from a repo stays that way even after a project adds an
+# `asset` — against a shared data dir the asset project below silently reused
+# repo installs and tested nothing. Downloads still come from the shared cache.
+export MISE_DATA_DIR="$root/mise-data"
+
+# After the export, or it links into the real data dir and the scratch one has
+# no backend at all.
+mise plugin link --force helm-plugin "$plugin_dir"
+
+# Each project's HELM_PLUGINS lives under XDG state, outside $root, so it needs
+# cleaning up separately or every run leaves an orphan behind.
+targets=()
+cleanup() {
+    rm -rf "$root" ${targets[@]+"${targets[@]}"}
+}
+trap cleanup EXIT
+
+make_project() {
+    local dir="$1" helm_major="$2" diff_version="$3" secrets_version="$4" diff_style="${5:-shorthand}"
+    mkdir -p "$dir"
+    {
+        echo '[tools]'
+        # Pinned, not whatever is on PATH: the majors behave differently, and
+        # helm-secrets < 4.6.5 won't load on helm 4 at all.
+        echo "helm = \"$helm_major\""
+        if [ "$diff_style" = inline ]; then
+            # "diff-inline" is absent from the registry, so the repo can only
+            # come from the inline option. It still points at helm-diff: this
+            # tests resolution, and a second real dependency would only add ways
+            # to fail for unrelated reasons. helm reports it as "diff", since the
+            # name comes from plugin.yaml rather than the mise tool name.
+            echo "\"helm-plugin:diff-inline\" = { version = \"$diff_version\", repo = \"databus23/helm-diff\" }"
+        else
+            echo "\"helm-plugin:helm-diff\" = \"$diff_version\""
+        fi
+        [ "$secrets_version" != none ] && echo "\"helm-plugin:helm-secrets\" = \"$secrets_version\""
+        echo
+        echo '[env]'
+        echo 'HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"'
+        echo
+        echo '[hooks]'
+        # Bare name, not a path: BackendExecEnv puts the plugin's bin/ on PATH.
+        echo 'enter = "helm-plugins-sync"'
+    } >"$dir/mise.toml"
+
+    # An untrusted config with [env]/[hooks] doesn't parse at all, and trust is
+    # recorded per file content, so trust every config this test writes.
+    mise trust "$dir/mise.toml" >/dev/null
+}
+
+# a: helm 3, one plugin.  b: helm 4, two plugins, incl. a helm-4-capable secrets.
+# c: helm 3, one plugin named by an inline repo instead of a shorthand.
+make_project "$root/a" 3 3.9.0 none
+make_project "$root/b" 4 3.10.0 4.7.7
+make_project "$root/c" 3 3.9.0 none inline
+
+# d: helm 4 with helm-secrets in its split form. The three plugins exist only as
+# release archives, so each names an `asset`; installing the repo three times
+# would instead give three plugins all called "secrets". {version} in single
+# braces, since mise rewrites {{version}} while templating the config.
+#
+# The core one is "helm-secrets-cli", not "helm-secrets": b already installs
+# that name at this version from the repo, and mise keys installs on
+# tool@version alone, so d would silently inherit b's repo install and test
+# nothing. Upstream names the plugin directory helm-secrets-cli too.
+mkdir -p "$root/d"
+cat >"$root/d/mise.toml" <<'EOF'
+[tools]
+helm = "4"
+"helm-plugin:helm-diff" = "3.10.0"
+"helm-plugin:helm-secrets-cli" = { version = "4.7.7", repo = "jkroepke/helm-secrets", asset = "secrets-{version}.tgz" }
+"helm-plugin:helm-secrets-getter" = { version = "4.7.7", repo = "jkroepke/helm-secrets", asset = "secrets-getter-{version}.tgz" }
+"helm-plugin:helm-secrets-post-renderer" = { version = "4.7.7", repo = "jkroepke/helm-secrets", asset = "secrets-post-renderer-{version}.tgz" }
+
+[env]
+HELM_PLUGINS = "{{xdg_state_home}}/helm-plugins/{{ config_root | basename }}-{{ config_root | hash(len=8) }}"
+
+[hooks]
+enter = "helm-plugins-sync"
+EOF
+mise trust "$root/d/mise.toml" >/dev/null
+
+fail=0
+
+check() {
+    local dir="$1" expected_diff="$2" expected_count="$3"
+
+    cd "$dir"
+    mise install >/dev/null
+    # What the `enter` hook would run on cd, resolved off PATH the same way.
+    # test-activate-hook covers the hook firing; this covers the result.
+    mise exec -- helm-plugins-sync
+
+    local project_target
+    project_target="$(mise env -s bash | sed -n 's/^export HELM_PLUGINS=//p')"
+    targets+=("$project_target")
+
+    echo "=== $dir (helm $(mise exec -- helm version --short)) ==="
+    echo "HELM_PLUGINS=$project_target"
+    mise exec -- helm plugin list
+
+    local actual_diff actual_count
+    actual_diff="$(mise exec -- helm plugin list | awk '$1 == "diff" { print $2 }')"
+    actual_count="$(mise exec -- helm plugin list | tail -n +2 | grep -c . || true)"
+
+    if [ "$actual_diff" != "$expected_diff" ]; then
+        echo "FAIL: expected diff $expected_diff, got '${actual_diff:-none}'" >&2
+        fail=1
+    fi
+    if [ "$actual_count" != "$expected_count" ]; then
+        echo "FAIL: expected $expected_count plugin(s), got $actual_count" >&2
+        fail=1
+    fi
+    echo
+}
+
+# The revisit to a is what catches state leaking between projects. c expects the
+# same as a, reached entirely through the inline repo option.
+check "$root/a" 3.9.0 1
+check "$root/b" 3.10.0 2
+check "$root/a" 3.9.0 1
+check "$root/c" 3.9.0 1
+# diff plus all three helm-secrets plugins, each from its own release archive.
+check "$root/d" 3.10.0 4
+
+# An unknown plugin name is a normal thing to hit, so the error has to say what
+# to do about it.
+# $1=label  $2=tool name  $3=[tools] entry  $4=expected substring
+check_error() {
+    local label="$1" tool="$2" entry="$3" expected="$4" out
+    mkdir -p "$root/err"
+    printf '[tools]\n%s\n' "$entry" >"$root/err/mise.toml"
+    # Re-trust after each rewrite, or the config is skipped rather than parsed
+    # and these assertions pass without the options reaching the hook.
+    mise trust "$root/err/mise.toml" >/dev/null
+    cd "$root/err"
+
+    out="$(mise ls-remote "helm-plugin:$tool" 2>&1 || true)"
+    if [[ "$out" == *"$expected"* ]]; then
+        echo "  [$label] reported: ...$expected..."
+    else
+        echo "FAIL [$label]: expected an error containing '$expected', got:" >&2
+        echo "$out" >&2
+        fail=1
+    fi
+}
+
+echo "=== resolution errors ==="
+check_error "unknown-tool" "totally-unknown" \
+    '"helm-plugin:totally-unknown" = "1.0.0"' \
+    'name the repo inline'
+check_error "bad-repo" "bad" \
+    '"helm-plugin:bad" = { version = "1.0.0", repo = "https://github.com/foo/bar" }' \
+    'expected an "owner/repo" GitHub slug'
+echo
+
+if [ "$fail" -eq 0 ]; then
+    echo "PASS: every project saw its own pinned versions, by shorthand and by inline repo"
+else
+    echo "FAILED" >&2
+    exit 1
+fi
